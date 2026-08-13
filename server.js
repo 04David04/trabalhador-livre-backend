@@ -2,6 +2,8 @@ require('dotenv').config(); // Carrega as variáveis do ficheiro .env
 const express = require('express');
 const cors = require('cors');
 const { createClient } = require('@supabase/supabase-js');
+const multer = require('multer'); // Para lidar com uploads de ficheiros (imagens)
+const upload = multer({ storage: multer.memoryStorage() }) // Pasta temporária para armazenar imagens
 
 const app = express();
 
@@ -142,6 +144,73 @@ app.patch('/api/admin/avaliacoes/:id/rejeitar', async (req, res) => {
     res.json({ message: 'Avaliação rejeitada com sucesso.' });
   } catch (error) {
     res.status(400).json({ error: error.message });
+  }
+});
+
+// ROTA: Cadastrar novo profissional com Foto Automática
+app.post('/api/profissionais', upload.single('foto'), async (req, res) => {
+  try {
+    const { 
+      nome, area, status, telefone, whatsapp, 
+      localizacao, trabalho, domicilio 
+    } = req.body;
+
+    let fotoUrl = null;
+
+    // Se o utilizador enviou uma foto no formulário
+    if (req.file) {
+      const file = req.file;
+      // Cria um nome único para o ficheiro (ex: 17123456789-foto.png)
+      const fileName = `${Date.now()}-${file.originalname.replace(/\s+/g, '-')}`;
+
+      // Upload automático para o Bucket 'profissionais' do Supabase Storage
+      const { data: storageData, error: storageError } = await supabase.storage
+        .from('profissionais')
+        .upload(fileName, file.buffer, {
+          contentType: file.mimetype,
+          upsert: true
+        });
+
+      if (storageError) throw storageError;
+
+      // Pega a URL pública da imagem enviada
+      const { data: publicUrlData } = supabase.storage
+        .from('profissionais')
+        .getPublicUrl(fileName);
+
+      fotoUrl = publicUrlData.publicUrl;
+    }
+
+    // Inserir os dados no banco PostgreSQL
+    const { data, error } = await supabase
+      .from('profissionais')
+      .insert([
+        {
+          nome,
+          area,
+          status: status || 'Disponível',
+          telefone,
+          whatsapp,
+          localizacao,
+          trabalho,
+          domicilio: domicilio || 'Sim',
+          foto: fotoUrl, // URL pública vinda do Storage do Supabase
+          verificado: false,
+          visualizacoes: 0,
+          trabalhos_realizados: 0,
+          avaliacao: 0.0,
+          pontos_totais: 0
+        }
+      ])
+      .select();
+
+    if (error) throw error;
+
+    res.status(201).json({ message: 'Profissional cadastrado com sucesso!', data });
+
+  } catch (error) {
+    console.error('Erro no cadastro:', error);
+    res.status(500).json({ error: error.message });
   }
 });
 
