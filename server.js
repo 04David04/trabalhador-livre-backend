@@ -1,6 +1,7 @@
 
 
 require('dotenv').config(); // Carrega as variáveis do .env
+const bycrypt = require('bcrypt');
 const express = require('express');
 const cors = require('cors');
 const { createClient } = require('@supabase/supabase-js');
@@ -190,6 +191,10 @@ app.post('/api/profissionais', upload.single('foto'), async (req, res) => {
       fotoUrl = publicUrlData.publicUrl;
     }
 
+
+   const saltRounds = 10;
+   const senhaHash = await bcrypt.hash(senha, saltRounds);
+
     // Inserir os dados no banco PostgreSQL / Supabase
     const { data, error } = await supabase
       .from('profissionais')
@@ -207,7 +212,8 @@ app.post('/api/profissionais', upload.single('foto'), async (req, res) => {
           verificado: false,
           visualizacoes: 0,
           trabalhos_realizados: 0,
-          avaliacao: 0.0
+          avaliacao: 0.0,
+          senha: senhaHash, // Armazena a senha criptografada
         }
       ])
       .select();
