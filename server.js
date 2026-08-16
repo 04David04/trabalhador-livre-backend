@@ -1,19 +1,26 @@
-require('dotenv').config(); // Carrega as variáveis do ficheiro .env
+
+
+require('dotenv').config(); // Carrega as variáveis do .env
 const express = require('express');
 const cors = require('cors');
 const { createClient } = require('@supabase/supabase-js');
-const multer = require('multer'); // Para lidar com uploads de ficheiros (imagens)
-const upload = multer({ storage: multer.memoryStorage() }) // Pasta temporária para armazenar imagens
+const multer = require('multer');
 
 const app = express();
 
 app.use(cors());
 app.use(express.json());
 
-// 1. Criamos a conexão com o Supabase
+// 1. Pega as variáveis de ambiente
 const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseKey = process.env.SUPABASE_KEY;
-const supabase = createClient(supabaseUrl, supabaseKey);
+// Usamos a SERVICE_ROLE_KEY para ignorar as restrições de RLS no servidor
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+// 2. Cria o cliente Supabase com a Chave de Administrador (Service Role)
+const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+// Configuração do Multer para receber ficheiros na memória
+const upload = multer({ storage: multer.memoryStorage() });
 
 // Rota de teste inicial
 app.get('/', (req, res) => {
@@ -141,7 +148,7 @@ app.patch('/api/admin/avaliacoes/:id/rejeitar', async (req, res) => {
       .eq('id', id);
 
     if (error) throw error;
-    res.json({ message: 'Avaliação rejeitada com sucesso.' });
+    res.json({ message: 'Avaliação rejeitada.' });
   } catch (error) {
     res.status(400).json({ error: error.message });
   }
@@ -151,19 +158,21 @@ app.patch('/api/admin/avaliacoes/:id/rejeitar', async (req, res) => {
 app.post('/api/profissionais', upload.single('foto'), async (req, res) => {
   try {
     const { 
-      nome, area, status, telefone, whatsapp, 
+      nome, profissao, area, status, telefone, whatsapp, 
       localizacao, trabalho, domicilio 
     } = req.body;
+
+    // Garante que pega 'profissao' ou 'area' se vier com outro nome
+    const profissaoFinal = profissao || area;
 
     let fotoUrl = null;
 
     // Se o utilizador enviou uma foto no formulário
     if (req.file) {
       const file = req.file;
-      // Cria um nome único para o ficheiro (ex: 17123456789-foto.png)
       const fileName = `${Date.now()}-${file.originalname.replace(/\s+/g, '-')}`;
 
-      // Upload automático para o Bucket 'profissionais' do Supabase Storage
+      // Upload para o Bucket 'profissionais' no Supabase Storage
       const { data: storageData, error: storageError } = await supabase.storage
         .from('profissionais')
         .upload(fileName, file.buffer, {
@@ -173,7 +182,7 @@ app.post('/api/profissionais', upload.single('foto'), async (req, res) => {
 
       if (storageError) throw storageError;
 
-      // Pega a URL pública da imagem enviada
+      // Pega a URL pública da imagem
       const { data: publicUrlData } = supabase.storage
         .from('profissionais')
         .getPublicUrl(fileName);
@@ -181,20 +190,20 @@ app.post('/api/profissionais', upload.single('foto'), async (req, res) => {
       fotoUrl = publicUrlData.publicUrl;
     }
 
-    // Inserir os dados no banco PostgreSQL
+    // Inserir os dados no banco PostgreSQL / Supabase
     const { data, error } = await supabase
       .from('profissionais')
       .insert([
         {
           nome,
-          area,
+          profissao: profissaoFinal,
           status: status || 'Disponível',
           telefone,
           whatsapp,
           localizacao,
           trabalho,
           domicilio: domicilio || 'Sim',
-          foto: fotoUrl, // URL pública vinda do Storage do Supabase
+          foto: fotoUrl, 
           verificado: false,
           visualizacoes: 0,
           trabalhos_realizados: 0,
@@ -210,9 +219,14 @@ app.post('/api/profissionais', upload.single('foto'), async (req, res) => {
 
   } catch (error) {
     console.error('Erro no cadastro:', error);
-    res.status(500).json({ error: error.message });
+    // 🔴 GARANTIR QUE RETORNA O ERRO EM JSON PARA O REACT:
+    res.status(500).json({ error: error.message || 'Erro interno ao cadastrar profissional.' });
   }
 });
+
+
+
+
 
 // Inicia o servidor na porta 5000
 app.listen(5000, () => {
