@@ -207,8 +207,7 @@ app.post('/api/profissionais', upload.single('foto'), async (req, res) => {
           verificado: false,
           visualizacoes: 0,
           trabalhos_realizados: 0,
-          avaliacao: 0.0,
-          pontos_totais: 0
+          avaliacao: 0.0
         }
       ])
       .select();
