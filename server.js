@@ -160,7 +160,7 @@ app.post('/api/profissionais', upload.single('foto'), async (req, res) => {
   try {
     const { 
       nome, profissao, area, status, telefone, whatsapp, 
-      localizacao, trabalho, domicilio 
+      localizacao, trabalho, domicilio, senha
     } = req.body;
 
     // Garante que pega 'profissao' ou 'area' se vier com outro nome
