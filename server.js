@@ -159,13 +159,10 @@ app.patch('/api/admin/avaliacoes/:id/rejeitar', async (req, res) => {
 app.post('/api/profissionais', upload.single('foto'), async (req, res) => {
   try {
     const { 
-      nome, profissao, area, status, telefone, whatsapp, 
-      localizacao, trabalho, domicilio, senha
+      nome, profissao,status, telefone, whatsapp, email, localizacao, trabalho, domicilio, senha
     } = req.body;
 
-    // Garante que pega 'profissao' ou 'area' se vier com outro nome
-    const profissaoFinal = profissao || area;
-
+  
     let fotoUrl = null;
 
     // Se o utilizador enviou uma foto no formulário
@@ -201,10 +198,11 @@ app.post('/api/profissionais', upload.single('foto'), async (req, res) => {
       .insert([
         {
           nome,
-          profissao: profissaoFinal,
+          profissao,
           status: status || 'Disponível',
           telefone,
           whatsapp,
+          email,
           localizacao,
           trabalho,
           domicilio: domicilio || 'Sim',
@@ -228,6 +226,9 @@ app.post('/api/profissionais', upload.single('foto'), async (req, res) => {
     res.status(500).json({ error: error.message || 'Erro interno ao cadastrar profissional.' });
   }
 });
+
+
+
 
 
 
