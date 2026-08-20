@@ -227,6 +227,53 @@ app.post('/api/profissionais', upload.single('foto'), async (req, res) => {
   }
 });
 
+const bcrypt = require('bcrypt');
+
+// ROTA DE LOGIN (Aceita Contacto ou E-mail)
+app.post('/api/login', async (req, res) => {
+  try {
+    const { login, senha } = req.body;
+
+    // 1. Validação simples
+    if (!login || !senha) {
+      return res.status(400).json({ error: 'Por favor, preencha o contacto/e-mail e a senha.' });
+    }
+
+    const termo = login.trim();
+
+    // 2. Busca no Supabase onde 'telefone' OU 'email' seja igual ao valor inserido
+    const { data: profissional, error } = await supabase
+      .from('profissionais')
+      .select('*')
+      .or(`telefone.eq.${termo},email.eq.${termo}`)
+      .maybeSingle();
+
+    if (error || !profissional) {
+      return res.status(404).json({ error: 'Nenhum profissional encontrado com este contacto ou e-mail.' });
+    }
+
+    // 3. Compara a senha digitada com o hash salvo no banco
+    const senhaValida = await bcrypt.compare(senha, profissional.senha);
+
+    if (!senhaValida) {
+      return res.status(401).json({ error: 'Senha incorreta. Tente novamente.' });
+    }
+
+    // 4. Remove a senha do objeto antes de enviar ao Front-end por segurança
+    delete profissional.senha;
+
+    // 5. Retorna sucesso e os dados do profissional
+    res.status(200).json({
+      message: 'Login efetuado com sucesso!',
+      profissional
+    });
+
+  } catch (error) {
+    console.error('Erro no login:', error);
+    res.status(500).json({ error: 'Erro interno no servidor ao tentar realizar o login.' });
+  }
+});
+
 
 
 
