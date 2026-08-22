@@ -22,6 +22,7 @@ const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
 // Configuração do Multer para receber ficheiros na memória
 const upload = multer({ storage: multer.memoryStorage() });
+const bcrypt = require('bcrypt');
 
 // Rota de teste inicial
 app.get('/', (req, res) => {
@@ -227,10 +228,10 @@ app.post('/api/profissionais', upload.single('foto'), async (req, res) => {
   }
 });
 
-const bcrypt = require('bcrypt');
+
 
 // ROTA DE LOGIN (Aceita Contacto ou E-mail)
-app.post('/api/login', async (req, res) => {
+app.post('/api/log', async (req, res) => {
   try {
     const { login, senha } = req.body;
 
