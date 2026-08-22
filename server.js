@@ -9,6 +9,7 @@ const app = express();
 
 app.use(cors());
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
 // 1. Pega as variáveis de ambiente
 const supabaseUrl = process.env.SUPABASE_URL;
@@ -63,11 +64,9 @@ app.post("/api/avaliacoes", async (req, res) => {
     if (error) throw error;
 
     // 3. Resposta de sucesso enviada de volta ao cliente
-    res
-      .status(201)
-      .json({
-        message: "Avaliação enviada com sucesso! Aguarda aprovação do Admin.",
-      });
+    res.status(201).json({
+      message: "Avaliação enviada com sucesso! Aguarda aprovação do Admin.",
+    });
   } catch (error) {
     res.status(400).json({ error: error.message });
   }
@@ -235,18 +234,16 @@ app.post("/api/profissionais", upload.single("foto"), async (req, res) => {
   } catch (error) {
     console.error("Erro no cadastro:", error);
     // 🔴 GARANTIR QUE RETORNA O ERRO EM JSON PARA O REACT:
-    res
-      .status(500)
-      .json({
-        error: error.message || "Erro interno ao cadastrar profissional.",
-      });
+    res.status(500).json({
+      error: error.message || "Erro interno ao cadastrar profissional.",
+    });
   }
 });
 
 // ROTA DE LOGIN (Aceita Contacto ou E-mail)
 app.post("/api/login", async (req, res) => {
   try {
-    const { login, senha } = req.body;
+    const { login, senha } = req.body || {};
 
     // 1. Validação simples
     if (!login || !senha) {
@@ -274,11 +271,9 @@ app.post("/api/login", async (req, res) => {
     const profissional = profissionalPorTelefone || profissionalPorEmail;
 
     if (errorTelefone || errorEmail || !profissional) {
-      return res
-        .status(404)
-        .json({
-          error: "Nenhum profissional encontrado com este contacto ou e-mail.",
-        });
+      return res.status(404).json({
+        error: "Nenhum profissional encontrado com este contacto ou e-mail.",
+      });
     }
 
     // 3. Verifica se a senha existe e compara corretamente
@@ -314,13 +309,10 @@ app.post("/api/login", async (req, res) => {
     });
   } catch (error) {
     console.error("Erro no login:", error);
-    res
-      .status(500)
-      .json({
-        error:
-          error.message ||
-          "Erro interno no servidor ao tentar realizar o login.",
-      });
+    res.status(500).json({
+      error:
+        error.message || "Erro interno no servidor ao tentar realizar o login.",
+    });
   }
 });
 
