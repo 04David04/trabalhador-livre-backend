@@ -22,7 +22,6 @@ const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
 // Configuração do Multer para receber ficheiros na memória
 const upload = multer({ storage: multer.memoryStorage() });
-const bcrypt = require('bcrypt');
 
 // Rota de teste inicial
 app.get('/', (req, res) => {
@@ -242,14 +241,22 @@ app.post('/api/login', async (req, res) => {
 
     const termo = login.trim();
 
-    // 2. Busca no Supabase onde 'telefone' OU 'email' seja igual ao valor inserido
-    const { data: profissional, error } = await supabase
+    // 2. Busca no Supabase por telefone ou email, usando consultas separadas para evitar falhas na query OR
+    const { data: profissionalPorTelefone, error: errorTelefone } = await supabase
       .from('profissionais')
       .select('*')
-      .or(`telefone.eq.${termo},email.eq.${termo}`)
+      .eq('telefone', termo)
       .maybeSingle();
 
-    if (error || !profissional) {
+    const { data: profissionalPorEmail, error: errorEmail } = await supabase
+      .from('profissionais')
+      .select('*')
+      .eq('email', termo)
+      .maybeSingle();
+
+    const profissional = profissionalPorTelefone || profissionalPorEmail;
+
+    if (errorTelefone || errorEmail || !profissional) {
       return res.status(404).json({ error: 'Nenhum profissional encontrado com este contacto ou e-mail.' });
     }
 
