@@ -231,7 +231,7 @@ app.post('/api/profissionais', upload.single('foto'), async (req, res) => {
 
 
 // ROTA DE LOGIN (Aceita Contacto ou E-mail)
-app.post('/api/log', async (req, res) => {
+app.post('/api/login', async (req, res) => {
   try {
     const { login, senha } = req.body;
 
