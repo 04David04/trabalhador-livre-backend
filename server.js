@@ -63,9 +63,11 @@ app.post("/api/avaliacoes", async (req, res) => {
     if (error) throw error;
 
     // 3. Resposta de sucesso enviada de volta ao cliente
-    res.status(201).json({
-      message: "Avaliação enviada com sucesso! Aguarda aprovação do Admin.",
-    });
+    res
+      .status(201)
+      .json({
+        message: "Avaliação enviada com sucesso! Aguarda aprovação do Admin.",
+      });
   } catch (error) {
     res.status(400).json({ error: error.message });
   }
@@ -233,9 +235,11 @@ app.post("/api/profissionais", upload.single("foto"), async (req, res) => {
   } catch (error) {
     console.error("Erro no cadastro:", error);
     // 🔴 GARANTIR QUE RETORNA O ERRO EM JSON PARA O REACT:
-    res.status(500).json({
-      error: error.message || "Erro interno ao cadastrar profissional.",
-    });
+    res
+      .status(500)
+      .json({
+        error: error.message || "Erro interno ao cadastrar profissional.",
+      });
   }
 });
 
@@ -251,55 +255,47 @@ app.post("/api/login", async (req, res) => {
         .json({ error: "Por favor, preencha o contacto/e-mail e a senha." });
     }
 
-    const termo = String(login).trim();
+    const termo = login.trim();
 
-    // 2. Busca no Supabase por telefone ou email
-    const [
-      { data: profissionalPorTelefone, error: errorTelefone },
-      { data: profissionalPorEmail, error: errorEmail },
-    ] = await Promise.all([
-      supabase
+    // 2. Busca o profissional por telefone ou email de forma mais segura
+    const { data: profissionalPorTelefone, error: errorTelefone } =
+      await supabase
         .from("profissionais")
         .select("*")
         .eq("telefone", termo)
-        .maybeSingle(),
-      supabase
-        .from("profissionais")
-        .select("*")
-        .eq("email", termo)
-        .maybeSingle(),
-    ]);
+        .maybeSingle();
+
+    const { data: profissionalPorEmail, error: errorEmail } = await supabase
+      .from("profissionais")
+      .select("*")
+      .eq("email", termo)
+      .maybeSingle();
 
     const profissional = profissionalPorTelefone || profissionalPorEmail;
 
-    if ((errorTelefone || errorEmail) && !profissional) {
-      return res.status(500).json({
-        error: "Erro ao consultar o profissional.",
-        details: (errorTelefone || errorEmail).message,
-      });
+    if (errorTelefone || errorEmail || !profissional) {
+      return res
+        .status(404)
+        .json({
+          error: "Nenhum profissional encontrado com este contacto ou e-mail.",
+        });
     }
 
-    if (!profissional) {
-      return res.status(404).json({
-        error: "Nenhum profissional encontrado com este contacto ou e-mail.",
-      });
+    // 3. Verifica se a senha existe e compara corretamente
+    if (!profissional.senha) {
+      return res
+        .status(401)
+        .json({ error: "Este profissional não tem senha válida no sistema." });
     }
 
-    // 3. Compara a senha digitada com o hash salvo no banco
-    const senhaSalva = profissional.senha;
     let senhaValida = false;
-
-    if (typeof senhaSalva === "string") {
-      const senhaNormalizada = String(senha).trim();
-      const isBcryptHash = ["$2a$", "$2b$", "$2y$"].some((prefix) =>
-        senhaSalva.startsWith(prefix),
-      );
-
-      if (isBcryptHash) {
-        senhaValida = await bcrypt.compare(senhaNormalizada, senhaSalva);
-      } else {
-        senhaValida = senhaSalva === senhaNormalizada;
-      }
+    try {
+      senhaValida = await bcrypt.compare(senha, profissional.senha);
+    } catch (compareError) {
+      console.error("Erro ao comparar senha do login:", compareError);
+      return res
+        .status(500)
+        .json({ error: "Erro ao validar a senha. Contacte o suporte." });
     }
 
     if (!senhaValida) {
@@ -309,23 +305,26 @@ app.post("/api/login", async (req, res) => {
     }
 
     // 4. Remove a senha do objeto antes de enviar ao Front-end por segurança
-    const { senha: _, ...profissionalSemSenha } = profissional;
+    delete profissional.senha;
 
     // 5. Retorna sucesso e os dados do profissional
-    return res.status(200).json({
+    res.status(200).json({
       message: "Login efetuado com sucesso!",
-      profissional: profissionalSemSenha,
+      profissional,
     });
   } catch (error) {
     console.error("Erro no login:", error);
-    return res.status(500).json({
-      error: "Erro interno no servidor ao tentar realizar o login.",
-      details: error.message,
-    });
+    res
+      .status(500)
+      .json({
+        error:
+          error.message ||
+          "Erro interno no servidor ao tentar realizar o login.",
+      });
   }
 });
 
 // Inicia o servidor na porta 5000
 app.listen(5000, () => {
-  console.log("Servidor rodando na porta 5000");
+  console.log("🚀 Servidor rodando na porta 5000");
 });
