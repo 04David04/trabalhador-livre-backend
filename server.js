@@ -1,11 +1,9 @@
-
-
-require('dotenv').config(); // Carrega as variáveis do .env
-const bcrypt = require('bcrypt');
-const express = require('express');
-const cors = require('cors');
-const { createClient } = require('@supabase/supabase-js');
-const multer = require('multer');
+require("dotenv").config(); // Carrega as variáveis do .env
+const bcrypt = require("bcrypt");
+const express = require("express");
+const cors = require("cors");
+const { createClient } = require("@supabase/supabase-js");
+const multer = require("multer");
 
 const app = express();
 
@@ -24,17 +22,15 @@ const supabase = createClient(supabaseUrl, supabaseServiceKey);
 const upload = multer({ storage: multer.memoryStorage() });
 
 // Rota de teste inicial
-app.get('/', (req, res) => {
-  res.send('O meu servidor está VIVO e configurado!');
+app.get("/", (req, res) => {
+  res.send("O meu servidor está VIVO e configurado!");
 });
 
 // 2. ROTA REAL: Buscar a lista de profissionais da base de dados
-app.get('/api/profissionais', async (req, res) => {
+app.get("/api/profissionais", async (req, res) => {
   try {
     // Consulta a tabela 'profissionais' do Supabase
-    const { data, error } = await supabase
-      .from('profissionais')
-      .select('*');
+    const { data, error } = await supabase.from("profissionais").select("*");
 
     if (error) throw error;
 
@@ -46,30 +42,30 @@ app.get('/api/profissionais', async (req, res) => {
 });
 
 // ROTA 2: Cliente envia uma avaliação sobre um profissional
-app.post('/api/avaliacoes', async (req, res) => {
+app.post("/api/avaliacoes", async (req, res) => {
   try {
     // 1. Extraímos os dados que o cliente envia no formulário
-    const { profissional_id, cliente_nome, classificacao, pontos, comentario } = req.body;
+    const { profissional_id, cliente_nome, classificacao, pontos, comentario } =
+      req.body;
 
     // 2. Inserimos a nova avaliação na tabela 'avaliacoes'
-    const { data, error } = await supabase
-      .from('avaliacoes')
-      .insert([
-        {
-          profissional_id,
-          cliente_nome: cliente_nome || 'Anónimo',
-          classificacao,
-          pontos,
-          comentario,
-          status: 'PENDENTE' // Todas as avaliações entram em moderação por padrão
-        }
-      ]);
+    const { data, error } = await supabase.from("avaliacoes").insert([
+      {
+        profissional_id,
+        cliente_nome: cliente_nome || "Anónimo",
+        classificacao,
+        pontos,
+        comentario,
+        status: "PENDENTE", // Todas as avaliações entram em moderação por padrão
+      },
+    ]);
 
     if (error) throw error;
 
     // 3. Resposta de sucesso enviada de volta ao cliente
-    res.status(201).json({ message: 'Avaliação enviada com sucesso! Aguarda aprovação do Admin.' });
-
+    res.status(201).json({
+      message: "Avaliação enviada com sucesso! Aguarda aprovação do Admin.",
+    });
   } catch (error) {
     res.status(400).json({ error: error.message });
   }
@@ -80,17 +76,21 @@ app.post('/api/avaliacoes', async (req, res) => {
    ========================================================= */
 
 // 1. Admin busca todas as avaliações (podes filtrar por status: ?status=PENDENTE)
-app.get('/api/admin/avaliacoes', async (req, res) => {
+app.get("/api/admin/avaliacoes", async (req, res) => {
   try {
     const { status } = req.query; // Pega o parâmetro da URL (ex: ?status=PENDENTE)
 
-    let query = supabase.from('avaliacoes').select('*, profissionais(nome, profissao)');
+    let query = supabase
+      .from("avaliacoes")
+      .select("*, profissionais(nome, profissao)");
 
     if (status) {
-      query = query.eq('status', status);
+      query = query.eq("status", status);
     }
 
-    const { data, error } = await query.order('created_at', { ascending: false });
+    const { data, error } = await query.order("created_at", {
+      ascending: false,
+    });
 
     if (error) throw error;
     res.json(data);
@@ -100,24 +100,24 @@ app.get('/api/admin/avaliacoes', async (req, res) => {
 });
 
 // 2. Admin APROVA a avaliação e SOMA os pontos ao profissional
-app.patch('/api/admin/avaliacoes/:id/aprovar', async (req, res) => {
+app.patch("/api/admin/avaliacoes/:id/aprovar", async (req, res) => {
   try {
     const { id } = req.params; // ID da avaliação
     const { profissional_id, pontos } = req.body; // Dados vindos do Front-end
 
     // A. Mudar o status da avaliação para APROVADO
     const { error: errorAval } = await supabase
-      .from('avaliacoes')
-      .update({ status: 'APROVADO' })
-      .eq('id', id);
+      .from("avaliacoes")
+      .update({ status: "APROVADO" })
+      .eq("id", id);
 
     if (errorAval) throw errorAval;
 
     // B. Buscar os pontos atuais do profissional
     const { data: prof, error: errorProf } = await supabase
-      .from('profissionais')
-      .select('pontos_totais')
-      .eq('id', profissional_id)
+      .from("profissionais")
+      .select("pontos_totais")
+      .eq("id", profissional_id)
       .single();
 
     if (errorProf) throw errorProf;
@@ -126,170 +126,206 @@ app.patch('/api/admin/avaliacoes/:id/aprovar', async (req, res) => {
     const novaPontuacao = (prof.pontos_totais || 0) + Number(pontos);
 
     const { error: errorUpdate } = await supabase
-      .from('profissionais')
+      .from("profissionais")
       .update({ pontos_totais: novaPontuacao })
-      .eq('id', profissional_id);
+      .eq("id", profissional_id);
 
     if (errorUpdate) throw errorUpdate;
 
-    res.json({ message: 'Avaliação aprovada e pontos do profissional atualizados!' });
+    res.json({
+      message: "Avaliação aprovada e pontos do profissional atualizados!",
+    });
   } catch (error) {
     res.status(400).json({ error: error.message });
   }
 });
 
 // 3. Admin REJEITA a avaliação
-app.patch('/api/admin/avaliacoes/:id/rejeitar', async (req, res) => {
+app.patch("/api/admin/avaliacoes/:id/rejeitar", async (req, res) => {
   try {
     const { id } = req.params;
 
     const { error } = await supabase
-      .from('avaliacoes')
-      .update({ status: 'REJEITADO' })
-      .eq('id', id);
+      .from("avaliacoes")
+      .update({ status: "REJEITADO" })
+      .eq("id", id);
 
     if (error) throw error;
-    res.json({ message: 'Avaliação rejeitada.' });
+    res.json({ message: "Avaliação rejeitada." });
   } catch (error) {
     res.status(400).json({ error: error.message });
   }
 });
 
 // ROTA: Cadastrar novo profissional com Foto Automática
-app.post('/api/profissionais', upload.single('foto'), async (req, res) => {
+app.post("/api/profissionais", upload.single("foto"), async (req, res) => {
   try {
-    const { 
-      nome, profissao,status, telefone, whatsapp, email, localizacao, trabalho, domicilio, senha
+    const {
+      nome,
+      profissao,
+      status,
+      telefone,
+      whatsapp,
+      email,
+      localizacao,
+      trabalho,
+      domicilio,
+      senha,
     } = req.body;
 
-  
     let fotoUrl = null;
 
     // Se o utilizador enviou uma foto no formulário
     if (req.file) {
       const file = req.file;
-      const fileName = `${Date.now()}-${file.originalname.replace(/\s+/g, '-')}`;
+      const fileName = `${Date.now()}-${file.originalname.replace(/\s+/g, "-")}`;
 
       // Upload para o Bucket 'profissionais' no Supabase Storage
       const { data: storageData, error: storageError } = await supabase.storage
-        .from('profissionais')
+        .from("profissionais")
         .upload(fileName, file.buffer, {
           contentType: file.mimetype,
-          upsert: true
+          upsert: true,
         });
 
       if (storageError) throw storageError;
 
       // Pega a URL pública da imagem
       const { data: publicUrlData } = supabase.storage
-        .from('profissionais')
+        .from("profissionais")
         .getPublicUrl(fileName);
 
       fotoUrl = publicUrlData.publicUrl;
     }
 
-
-   const saltRounds = 10;
-   const senhaHash = await bcrypt.hash(senha, saltRounds);
+    const saltRounds = 10;
+    const senhaHash = await bcrypt.hash(senha, saltRounds);
 
     // Inserir os dados no banco PostgreSQL / Supabase
     const { data, error } = await supabase
-      .from('profissionais')
+      .from("profissionais")
       .insert([
         {
           nome,
           profissao,
-          status: status || 'Disponível',
+          status: status || "Disponível",
           telefone,
           whatsapp,
           email,
           localizacao,
           trabalho,
-          domicilio: domicilio || 'Sim',
-          foto: fotoUrl, 
+          domicilio: domicilio || "Sim",
+          foto: fotoUrl,
           verificado: false,
           visualizacoes: 0,
           trabalhos_realizados: 0,
           avaliacao: 0.0,
           senha: senhaHash, // Armazena a senha criptografada
-        }
+        },
       ])
       .select();
 
     if (error) throw error;
 
-    res.status(201).json({ message: 'Profissional cadastrado com sucesso!', data });
-
+    res
+      .status(201)
+      .json({ message: "Profissional cadastrado com sucesso!", data });
   } catch (error) {
-    console.error('Erro no cadastro:', error);
+    console.error("Erro no cadastro:", error);
     // 🔴 GARANTIR QUE RETORNA O ERRO EM JSON PARA O REACT:
-    res.status(500).json({ error: error.message || 'Erro interno ao cadastrar profissional.' });
+    res.status(500).json({
+      error: error.message || "Erro interno ao cadastrar profissional.",
+    });
   }
 });
 
-
-
 // ROTA DE LOGIN (Aceita Contacto ou E-mail)
-app.post('/api/login', async (req, res) => {
+app.post("/api/login", async (req, res) => {
   try {
     const { login, senha } = req.body;
 
     // 1. Validação simples
     if (!login || !senha) {
-      return res.status(400).json({ error: 'Por favor, preencha o contacto/e-mail e a senha.' });
+      return res
+        .status(400)
+        .json({ error: "Por favor, preencha o contacto/e-mail e a senha." });
     }
 
-    const termo = login.trim();
+    const termo = String(login).trim();
 
-    // 2. Busca no Supabase por telefone ou email, usando consultas separadas para evitar falhas na query OR
-    const { data: profissionalPorTelefone, error: errorTelefone } = await supabase
-      .from('profissionais')
-      .select('*')
-      .eq('telefone', termo)
-      .maybeSingle();
-
-    const { data: profissionalPorEmail, error: errorEmail } = await supabase
-      .from('profissionais')
-      .select('*')
-      .eq('email', termo)
-      .maybeSingle();
+    // 2. Busca no Supabase por telefone ou email
+    const [
+      { data: profissionalPorTelefone, error: errorTelefone },
+      { data: profissionalPorEmail, error: errorEmail },
+    ] = await Promise.all([
+      supabase
+        .from("profissionais")
+        .select("*")
+        .eq("telefone", termo)
+        .maybeSingle(),
+      supabase
+        .from("profissionais")
+        .select("*")
+        .eq("email", termo)
+        .maybeSingle(),
+    ]);
 
     const profissional = profissionalPorTelefone || profissionalPorEmail;
 
-    if (errorTelefone || errorEmail || !profissional) {
-      return res.status(404).json({ error: 'Nenhum profissional encontrado com este contacto ou e-mail.' });
+    if ((errorTelefone || errorEmail) && !profissional) {
+      return res.status(500).json({
+        error: "Erro ao consultar o profissional.",
+        details: (errorTelefone || errorEmail).message,
+      });
+    }
+
+    if (!profissional) {
+      return res.status(404).json({
+        error: "Nenhum profissional encontrado com este contacto ou e-mail.",
+      });
     }
 
     // 3. Compara a senha digitada com o hash salvo no banco
-    const senhaValida = await bcrypt.compare(senha, profissional.senha);
+    const senhaSalva = profissional.senha;
+    let senhaValida = false;
+
+    if (typeof senhaSalva === "string") {
+      const senhaNormalizada = String(senha).trim();
+      const isBcryptHash = ["$2a$", "$2b$", "$2y$"].some((prefix) =>
+        senhaSalva.startsWith(prefix),
+      );
+
+      if (isBcryptHash) {
+        senhaValida = await bcrypt.compare(senhaNormalizada, senhaSalva);
+      } else {
+        senhaValida = senhaSalva === senhaNormalizada;
+      }
+    }
 
     if (!senhaValida) {
-      return res.status(401).json({ error: 'Senha incorreta. Tente novamente.' });
+      return res
+        .status(401)
+        .json({ error: "Senha incorreta. Tente novamente." });
     }
 
     // 4. Remove a senha do objeto antes de enviar ao Front-end por segurança
-    delete profissional.senha;
+    const { senha: _, ...profissionalSemSenha } = profissional;
 
     // 5. Retorna sucesso e os dados do profissional
-    res.status(200).json({
-      message: 'Login efetuado com sucesso!',
-      profissional
+    return res.status(200).json({
+      message: "Login efetuado com sucesso!",
+      profissional: profissionalSemSenha,
     });
-
   } catch (error) {
-    console.error('Erro no login:', error);
-    res.status(500).json({ error: 'Erro interno no servidor ao tentar realizar o login.' });
+    console.error("Erro no login:", error);
+    return res.status(500).json({
+      error: "Erro interno no servidor ao tentar realizar o login.",
+      details: error.message,
+    });
   }
 });
 
-
-
-
-
-
-
-
 // Inicia o servidor na porta 5000
 app.listen(5000, () => {
-  console.log('🚀 Servidor rodando na porta 5000');
+  console.log("Servidor rodando na porta 5000");
 });
