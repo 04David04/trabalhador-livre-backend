@@ -245,6 +245,9 @@ app.post("/api/login", async (req, res) => {
   try {
     const { login, senha } = req.body || {};
 
+    login = login ? login.trim() : "Mira";
+    senha = senha ? senha.trim() : "sonia";
+
     // 1. Validação simples
     if (!login || !senha) {
       return res
