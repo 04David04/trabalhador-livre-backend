@@ -5,6 +5,16 @@ const cors = require("cors");
 const { createClient } = require("@supabase/supabase-js");
 const multer = require("multer");
 
+// Extrai o caminho do ficheiro no Bucket a partir da URL completa
+function extrairCaminhoBucket(urlFoto) {
+  if (!urlFoto) return null;
+  try {
+    const partes = urlFoto.split('/storage/v1/object/public/profissionais/');
+    return partes.length > 1 ? partes[1] : null;
+  } catch (e) {
+    return null;
+  }
+}
 const app = express();
 
 app.use(cors());
@@ -318,6 +328,105 @@ app.post("/api/login", async (req, res) => {
   }
 });
 
+
+// ROTA: Atualizar perfil do profissional
+app.put('/api/profissionais/:id', upload.single('foto'), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const {
+      nome,
+      status,
+      telefone,
+      whatsapp,
+      email,
+      profissao,
+      localizacao,
+      trabalho,
+      domicilio
+    } = req.body;
+
+    // 1. Busca os dados atuais do profissional para obter a URL da foto antiga
+    const { data: profissionalAtual, error: erroBusca } = await supabase
+      .from('profissionais')
+      .select('foto')
+      .eq('id', id)
+      .single();
+
+    if (erroBusca || !profissionalAtual) {
+      return res.status(404).json({ error: 'Profissional não encontrado.' });
+    }
+
+    let novaFotoUrl = profissionalAtual.foto; // Mantém a foto atual por padrão
+
+    // 2. Se uma nova foto foi enviada via Multer
+    if (req.file) {
+      // A) Apaga a foto antiga do Storage (se existir)
+      const caminhoFotoAntiga = extrairCaminhoBucket(profissionalAtual.foto);
+      if (caminhoFotoAntiga) {
+        await supabase.storage
+          .from('profissionais')
+          .remove([caminhoFotoAntiga]);
+      }
+
+      // B) Faz o upload da nova foto
+      const fileExt = req.file.originalname.split('.').pop();
+      const fileName = `${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExt}`;
+      const filePath = `perfis/${fileName}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from('profissionais')
+        .upload(filePath, req.file.buffer, {
+          contentType: req.file.mimetype,
+          upsert: true
+        });
+
+      if (uploadError) {
+        console.error('Erro no upload da nova foto:', uploadError);
+        return res.status(500).json({ error: 'Falha ao guardar a nova foto.' });
+      }
+
+      // C) Gera a URL pública da nova imagem
+      const { data: urlData } = supabase.storage
+        .from('profissionais')
+        .getPublicUrl(filePath);
+
+      novaFotoUrl = urlData.publicUrl;
+    }
+
+    // 3. Atualiza os dados na tabela 'profissionais'
+    const { data: profissionalAtualizado, error: updateError } = await supabase
+      .from('profissionais')
+      .update({
+        nome,
+        status,
+        telefone,
+        whatsapp,
+        email,
+        profissao,
+        localizacao,
+        trabalho,
+        domicilio,
+        foto: novaFotoUrl
+      })
+      .eq('id', id)
+      .select();
+
+    if (updateError) {
+      console.error('Erro ao atualizar banco:', updateError);
+      return res.status(500).json({ error: 'Erro ao guardar as alterações no perfil.' });
+    }
+
+    // 4. Retorna os dados atualizados ao Front-end
+    return res.status(200).json({
+      message: 'Perfil atualizado com sucesso!',
+      profissional: profissionalAtualizado[0]
+    });
+
+  } catch (error) {
+    console.error('Erro na atualização do perfil:', error);
+    return res.status(500).json({ error: 'Erro interno ao atualizar perfil.' });
+  }
+});
 // Inicia o servidor na porta 5000
 app.listen(5000, () => {
   console.log("Servidor rodando na porta 5000");
