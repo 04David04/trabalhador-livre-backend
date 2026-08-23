@@ -271,7 +271,7 @@ app.post("/api/login", async (req, res) => {
 
     if (errorTelefone || errorEmail || !profissional) {
       return res.status(404).json({
-        error1: "Contacto/e-mail incorreto.",
+        error: "Contacto/e-mail incorreto.",
       });
     }
 
@@ -295,7 +295,7 @@ app.post("/api/login", async (req, res) => {
     if (!senhaValida) {
       return res
         .status(401)
-        .json({ error1: "Senha incorreta." });
+        .json({ error: "Senha incorreta." });
     }
 
     // 4. Remove a senha do objeto antes de enviar ao Front-end por segurança
