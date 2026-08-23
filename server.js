@@ -272,6 +272,7 @@ app.post("/api/login", async (req, res) => {
     if (errorTelefone || errorEmail || !profissional) {
       return res.status(404).json({
         error: "Contacto/e-mail incorreto.",
+        tipo: "1", // Tipo 1: Profissional não encontrado
       });
     }
 
@@ -279,7 +280,9 @@ app.post("/api/login", async (req, res) => {
     if (!profissional.senha) {
       return res
         .status(401)
-        .json({ error: "Este profissional não tem senha válida no sistema." });
+        .json({ error: "Este profissional não tem senha válida no sistema.",
+          tipo: "2"
+         });
     }
 
     let senhaValida = false;
@@ -295,7 +298,7 @@ app.post("/api/login", async (req, res) => {
     if (!senhaValida) {
       return res
         .status(401)
-        .json({ error: "Senha incorreta." });
+        .json({ error: "Senha incorreta.", tipo: "2" });
     }
 
     // 4. Remove a senha do objeto antes de enviar ao Front-end por segurança
@@ -317,5 +320,5 @@ app.post("/api/login", async (req, res) => {
 
 // Inicia o servidor na porta 5000
 app.listen(5000, () => {
-  console.log("🚀 Servidor rodando na porta 5000");
+  console.log("Servidor rodando na porta 5000");
 });
