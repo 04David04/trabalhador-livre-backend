@@ -56,14 +56,14 @@ app.get("/api/profissionais", async (req, res) => {
 app.post("/api/avaliacoes", async (req, res) => {
   try {
     // 1. Extraímos os dados que o cliente envia no formulário
-    const { profissional_id, cliente_nome, classificacao, pontos, comentario } =
+    const { profissional_id, contacto, classificacao, ponto, comentario } =
       req.body;
 
     // 2. Inserimos a nova avaliação na tabela 'avaliacoes'
     const { data, error } = await supabase.from("avaliacoes").insert([
       {
-        profissional_id,
-        cliente_nome: cliente_nome || "Anónimo",
+        profissional,
+        contacto: contacto || "Anónimo",
         classificacao,
         pontos,
         comentario,
