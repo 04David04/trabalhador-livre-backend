@@ -62,12 +62,12 @@ app.post("/api/avaliacoes", async (req, res) => {
     // 2. Inserimos a nova avaliação na tabela 'avaliacoes'
     const { data, error } = await supabase.from("avaliacoes").insert([
       {
-        profissional,
-        contacto: contacto || "Anónimo",
         classificacao,
-        ponto,
         comentario,
         status: "PENDENTE", // Todas as avaliações entram em moderação por padrão
+        profissional,
+        ponto,
+        contacto: contacto || "Anónimo",
       },
     ]);
 
