@@ -9,7 +9,7 @@ const multer = require("multer");
 function extrairCaminhoBucket(urlFoto) {
   if (!urlFoto) return null;
   try {
-    const partes = urlFoto.split('/storage/v1/object/public/profissionais/');
+    const partes = urlFoto.split("/storage/v1/object/public/profissionais/");
     return partes.length > 1 ? partes[1] : null;
   } catch (e) {
     return null;
@@ -59,6 +59,14 @@ app.post("/api/avaliacoes", async (req, res) => {
     const { profissional, contacto, classificacao, ponto, comentario } =
       req.body;
 
+    // 1.a Validação de campos obrigatórios
+    if (!profissional || !ponto || !classificacao || !comentario) {
+      return res.status(400).json({
+        error:
+          "Por favor, preencha os campos obrigatórios: classificação e comentário.",
+      });
+    }
+
     // 2. Inserimos a nova avaliação na tabela 'avaliacoes'
     const { data, error } = await supabase.from("avaliacoes").insert([
       {
@@ -79,7 +87,6 @@ app.post("/api/avaliacoes", async (req, res) => {
     });
   } catch (error) {
     res.status(400).json({ error: error.message });
-
   }
 });
 
@@ -291,9 +298,10 @@ app.post("/api/login", async (req, res) => {
     if (!profissional.senha) {
       return res
         .status(401)
-        .json({ error: "Este profissional não tem senha válida no sistema.",
-          tipo: "2"
-         });
+        .json({
+          error: "Este profissional não tem senha válida no sistema.",
+          tipo: "2",
+        });
     }
 
     let senhaValida = false;
@@ -307,9 +315,7 @@ app.post("/api/login", async (req, res) => {
     }
 
     if (!senhaValida) {
-      return res
-        .status(401)
-        .json({ error: "Senha incorreta.", tipo: "2" });
+      return res.status(401).json({ error: "Senha incorreta.", tipo: "2" });
     }
 
     // 4. Remove a senha do objeto antes de enviar ao Front-end por segurança
@@ -329,9 +335,8 @@ app.post("/api/login", async (req, res) => {
   }
 });
 
-
 // ROTA: Atualizar perfil do profissional
-app.put('/api/profissionais/:id', upload.single('foto'), async (req, res) => {
+app.put("/api/profissionais/:id", upload.single("foto"), async (req, res) => {
   try {
     const { id } = req.params;
     const {
@@ -343,18 +348,18 @@ app.put('/api/profissionais/:id', upload.single('foto'), async (req, res) => {
       profissao,
       localizacao,
       trabalho,
-      domicilio
+      domicilio,
     } = req.body;
 
     // 1. Busca os dados atuais do profissional para obter a URL da foto antiga
     const { data: profissionalAtual, error: erroBusca } = await supabase
-      .from('profissionais')
-      .select('foto')
-      .eq('id', id)
+      .from("profissionais")
+      .select("foto")
+      .eq("id", id)
       .single();
 
     if (erroBusca || !profissionalAtual) {
-      return res.status(404).json({ error: 'Profissional não encontrado.' });
+      return res.status(404).json({ error: "Profissional não encontrado." });
     }
 
     let novaFotoUrl = profissionalAtual.foto; // Mantém a foto atual por padrão
@@ -365,30 +370,30 @@ app.put('/api/profissionais/:id', upload.single('foto'), async (req, res) => {
       const caminhoFotoAntiga = extrairCaminhoBucket(profissionalAtual.foto);
       if (caminhoFotoAntiga) {
         await supabase.storage
-          .from('profissionais')
+          .from("profissionais")
           .remove([caminhoFotoAntiga]);
       }
 
       // B) Faz o upload da nova foto
-      const fileExt = req.file.originalname.split('.').pop();
+      const fileExt = req.file.originalname.split(".").pop();
       const fileName = `${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExt}`;
       const filePath = `perfis/${fileName}`;
 
       const { error: uploadError } = await supabase.storage
-        .from('profissionais')
+        .from("profissionais")
         .upload(filePath, req.file.buffer, {
           contentType: req.file.mimetype,
-          upsert: true
+          upsert: true,
         });
 
       if (uploadError) {
-        console.error('Erro no upload da nova foto:', uploadError);
-        return res.status(500).json({ error: 'Falha ao guardar a nova foto.' });
+        console.error("Erro no upload da nova foto:", uploadError);
+        return res.status(500).json({ error: "Falha ao guardar a nova foto." });
       }
 
       // C) Gera a URL pública da nova imagem
       const { data: urlData } = supabase.storage
-        .from('profissionais')
+        .from("profissionais")
         .getPublicUrl(filePath);
 
       novaFotoUrl = urlData.publicUrl;
@@ -396,7 +401,7 @@ app.put('/api/profissionais/:id', upload.single('foto'), async (req, res) => {
 
     // 3. Atualiza os dados na tabela 'profissionais'
     const { data: profissionalAtualizado, error: updateError } = await supabase
-      .from('profissionais')
+      .from("profissionais")
       .update({
         nome,
         status,
@@ -407,25 +412,26 @@ app.put('/api/profissionais/:id', upload.single('foto'), async (req, res) => {
         localizacao,
         trabalho,
         domicilio,
-        foto: novaFotoUrl
+        foto: novaFotoUrl,
       })
-      .eq('id', id)
+      .eq("id", id)
       .select();
 
     if (updateError) {
-      console.error('Erro ao atualizar banco:', updateError);
-      return res.status(500).json({ error: 'Erro ao guardar as alterações no perfil.' });
+      console.error("Erro ao atualizar banco:", updateError);
+      return res
+        .status(500)
+        .json({ error: "Erro ao guardar as alterações no perfil." });
     }
 
     // 4. Retorna os dados atualizados ao Front-end
     return res.status(200).json({
-      message: 'Perfil atualizado com sucesso!',
-      profissional: profissionalAtualizado[0]
+      message: "Perfil atualizado com sucesso!",
+      profissional: profissionalAtualizado[0],
     });
-
   } catch (error) {
-    console.error('Erro na atualização do perfil:', error);
-    return res.status(500).json({ error: 'Erro interno ao atualizar perfil.' });
+    console.error("Erro na atualização do perfil:", error);
+    return res.status(500).json({ error: "Erro interno ao atualizar perfil." });
   }
 });
 // Inicia o servidor na porta 5000
