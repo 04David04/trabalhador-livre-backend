@@ -65,7 +65,7 @@ app.post("/api/avaliacoes", async (req, res) => {
         profissional,
         contacto: contacto || "Anónimo",
         classificacao,
-        pontos,
+        ponto,
         comentario,
         status: "PENDENTE", // Todas as avaliações entram em moderação por padrão
       },
@@ -79,7 +79,7 @@ app.post("/api/avaliacoes", async (req, res) => {
     });
   } catch (error) {
     res.status(400).json({ error: error.message });
-    
+
   }
 });
 
