@@ -539,6 +539,8 @@ app.post('/api/esquecisenha', async (req, res) => {
     return res.status(200).json({ message: 'E-mail de recuperação enviado com sucesso!' });
 
   } catch (err) {
+
+    console.error('ERRO DETALHADO NO BACKEND:', err);
     return res.status(500).json({ error: 'Erro ao processar pedido de recuperação.' });
   }
 });
