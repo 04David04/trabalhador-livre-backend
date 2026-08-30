@@ -493,7 +493,7 @@ app.put("/api/profissionais/:id", upload.single("foto"), async (req, res) => {
 // ----------------------------------------------------
 // ROTA 1: Gerar Token e Enviar E-mail de Recuperação
 // ----------------------------------------------------
-app.post('/api/esqueci-senha', async (req, res) => {
+app.post('/api/esquecisenha', async (req, res) => {
   const { email } = req.body;
 
   try {
