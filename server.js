@@ -525,7 +525,7 @@ app.post("/api/esquecisenha", async (req, res) => {
 
         // Usa Resend em vez de nodemailer
         const { data, error: emailError } = await resend.emails.send({
-          from: "trabalhadorlivremz@gmail.com", // ou seu domínio customizado
+          from: "noreply@resend.dev", // ou seu domínio customizado
           to: email,
           subject: "Recuperação de Conta - Redefinir Senha",
           html: `
