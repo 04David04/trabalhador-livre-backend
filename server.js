@@ -530,39 +530,43 @@ app.post("/api/esquecisenha", async (req, res) => {
           subject: "Recuperação de Conta - Redefinir Senha",
           html: `
             <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px; background-color: #ffffff;">
-                  <!-- Cabeçalho com a Marca -->
-                  <div style="text-align: center; padding-bottom: 20px; border-bottom: 2px solid #f1f5f9;">
-                    <h1 style="color: #1e293b; margin: 0; font-size: 24px;">ServiçosLocais</h1>
-                    <p style="color: #64748b; margin: 4px 0 0 0; font-size: 13px;">Plataforma de Visibilidade para Profissionais Independentes</p>
-                  </div>
+              
+              <!-- Cabeçalho com a Marca Oficial -->
+              <div style="text-align: center; padding-bottom: 20px; border-bottom: 2px solid #f1f5f9;">
+                <img src="https://trabalhadorlivre.vercel.app/og-image.png" alt="Trabalhador Livre" style="max-width: 180px; height: auto; margin-bottom: 10px;" />
+                <h1 style="color: #1e293b; margin: 0; font-size: 22px;">Trabalhador Livre</h1>
+                <p style="color: #64748b; margin: 4px 0 0 0; font-size: 13px;">Conectando trabalhadores informais a oportunidades em Quelimane</p>
+              </div>
 
-                  <!-- Corpo da Mensagem -->
-                  <div style="padding: 24px 0; color: #334155; line-height: 1.6;">
-                    <p style="font-size: 16px; margin-top: 0;">Olá, <strong>${profissional.nome}</strong>,</p>
-                    
-                    <p>Recebemos uma solicitação para a redefinição da palavra-passe associada à tua conta profissional.</p>
-                    
-                    <p>Para criar uma nova credencial e restabelecer o teu acesso em segurança, clica no botão abaixo:</p>
-                    
-                    <!-- Botão de Ação -->
-                    <div style="text-align: center; margin: 30px 0;">
-                      <a href="${linkRedefinicao}" style="background-color: #2563eb; color: #ffffff; padding: 12px 24px; text-decoration: none; font-weight: bold; border-radius: 6px; display: inline-block; font-size: 15px;">
-                        Redefinir Palavra-passe
-                      </a>
-                    </div>
-                    
-                    <p style="font-size: 13px; color: #64748b; background-color: #f8fafc; padding: 12px; border-left: 4px solid #2563eb; border-radius: 4px;">
-                      <strong>Nota de Segurança:</strong> Este link é de utilização única e expira automaticamente em <strong>30 minutos</strong>. Se não solicitaste esta alteração, podes ignorar este e-mail com segurança — a tua senha atual permanecerá inalterada.
-                    </p>
-                  </div>
-
-                  <!-- Rodapé Profissional -->
-                  <div style="border-top: 1px solid #f1f5f9; padding-top: 20px; text-align: center; color: #94a3b8; font-size: 12px;">
-                    <p style="margin: 0;">Este é um e-mail automático enviado pelo sistema de segurança da <strong>ServiçosLocais</strong>.</p>
-                    <p style="margin: 4px 0 0 0;">Por favor, não me responda a esta mensagem.</p>
-                  </div>
-
+              <!-- Corpo da Mensagem -->
+              <div style="padding: 24px 0; color: #334155; line-height: 1.6;">
+                <p style="font-size: 16px; margin-top: 0;">Olá, <strong>${profissional.nome}</strong>,</p>
+                
+                <p>Recebemos uma solicitação para redefinir a palavra-passe do teu perfil profissional na plataforma <strong>Trabalhador Livre - Quelimane</strong>.</p>
+                
+                <p>Para criares uma nova credencial e continuares a receber pedidos de clientes em Quelimane para os teus serviços, clica no botão abaixo:</p>
+                
+                <!-- Botão de Ação -->
+                <div style="text-align: center; margin: 30px 0;">
+                  <a href="${linkRedefinicao}" style="background-color: #2563eb; color: #ffffff; padding: 12px 26px; text-decoration: none; font-weight: bold; border-radius: 6px; display: inline-block; font-size: 15px;">
+                    Redefinir Minha Senha
+                  </a>
                 </div>
+                
+                <!-- Caixa de Segurança -->
+                <div style="font-size: 13px; color: #475569; background-color: #f8fafc; padding: 14px; border-left: 4px solid #2563eb; border-radius: 4px;">
+                  <strong>⚠️ Nota de Segurança:</strong> Este link é individual, de uso único e expira em <strong>30 minutos</strong>. Se não solicitaste esta alteração, podes ignorar este e-mail — a tua conta continuará protegida e a tua senha atual não será alterada.
+                </div>
+              </div>
+
+              <!-- Rodapé Institucional -->
+              <div style="border-top: 1px solid #f1f5f9; padding-top: 20px; text-align: center; color: #94a3b8; font-size: 12px; line-height: 1.5;">
+                <p style="margin: 0; font-weight: bold; color: #64748b;">Trabalhador Livre - Quelimane</p>
+                <p style="margin: 4px 0;">A tua plataforma de visibilidade para eletricistas, encanadores, pedreiros, técnicos de IT e outros profissionais independentes.</p>
+                <p style="margin: 8px 0 0 0;"><a href="https://trabalhadorlivre.vercel.app" style="color: #2563eb; text-decoration: none;">trabalhadorlivre.vercel.app</a></p>
+              </div>
+
+            </div>
           `,
         });
 
