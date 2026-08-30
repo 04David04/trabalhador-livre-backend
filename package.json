@@ -16,7 +16,8 @@
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
     "multer": "^2.2.0",
-    "nodemailer": "^9.0.6"
+    "nodemailer": "^9.0.6",
+    "resend": "^6.25.0"
   },
   "devDependencies": {
     "nodemon": "^3.1.14"

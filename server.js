@@ -1,4 +1,8 @@
 require("dotenv").config(); // Carrega as variáveis do .env
+
+import {Resend} from "resend";
+
+const resend = new Resend(process.env.RESEND_API_KEY);
 const bcrypt = require("bcrypt");
 const express = require("express");
 const cors = require("cors");
@@ -6,20 +10,9 @@ const { createClient } = require("@supabase/supabase-js");
 const multer = require("multer");
 const nodemailer = require("nodemailer");
 const crypto = require("crypto");
+const { Resend } = require("resend");
 
-const transporter = nodemailer.createTransport({
-  service: "gmail",
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASSWORD,
-  },
-  host: "smtp.gmail.com",
-  port: 587,  // ← muda pra 587
-  secure: false,  // ← false quando usa 587
-  tls: {
-    rejectUnauthorized: false,
-  }
-});
+
 
 // Extrai o caminho do ficheiro no Bucket a partir da URL completa
 function extrairCaminhoBucket(urlFoto) {
@@ -495,64 +488,68 @@ app.put("/api/profissionais/:id", upload.single("foto"), async (req, res) => {
 // ROTA 1: Gerar Token e Enviar E-mail de Recuperação
 // ----------------------------------------------------
 app.post("/api/esquecisenha", async (req, res) => {
-  try {
-    const email = String(req.body?.email || "")
-      .trim()
-      .toLowerCase();
+      try {
+        const email = String(req.body?.email || "")
+          .trim()
+          .toLowerCase();
 
-    if (!email) {
-      return res.status(400).json({ error: "E-mail obrigatório." });
-    }
+        if (!email) {
+          return res.status(400).json({ error: "E-mail obrigatório." });
+        }
 
-    const { data: profissional, error } = await supabase
-      .from("profissionais")
-      .select("*")
-      .eq("email", email)
-      .maybeSingle();
+        const { data: profissional, error } = await supabase
+          .from("profissionais")
+          .select("*")
+          .eq("email", email)
+          .maybeSingle();
 
-    if (error || !profissional) {
-      return res.status(404).json({ error: "E-mail não encontrado." });
-    }
+        if (error || !profissional) {
+          return res.status(404).json({ error: "E-mail não encontrado." });
+        }
 
-    const resetToken = crypto.randomBytes(32).toString("hex");
-    const tokenExpira = new Date(Date.now() + 30 * 60 * 1000).toISOString();
+        const resetToken = crypto.randomBytes(32).toString("hex");
+        const tokenExpira = new Date(Date.now() + 30 * 60 * 1000).toISOString();
 
-    const { error: updateError } = await supabase
-      .from("profissionais")
-      .update({ reset_token: resetToken, reset_expira: tokenExpira })
-      .eq("id", profissional.id);
+        const { error: updateError } = await supabase
+          .from("profissionais")
+          .update({ reset_token: resetToken, reset_expira: tokenExpira })
+          .eq("id", profissional.id);
 
-    if (updateError) {
-      throw updateError;
-    }
+        if (updateError) {
+          throw updateError;
+        }
 
-    const frontendUrl = process.env.FRONTEND_URL || "http://localhost:3000";
-    const linkRedefinicao = `${frontendUrl}/?token=${resetToken}&actualPage=redefinir-senha`;
+        const frontendUrl = process.env.FRONTEND_URL || "http://localhost:3000";
+        const linkRedefinicao = `${frontendUrl}/?token=${resetToken}&actualPage=redefinir-senha`;
 
-    const mailOptions = {
-      from: '"Suporte Plataforma" <trabalhadorlivremz@gmail.com>',
-      to: email,
-      subject: "Recuperação de Conta - Redefinir Senha",
-      html: `
-        <h3>Olá, ${profissional.nome}!</h3>
-        <p>Recebemos um pedido para redefinir a palavra-passe da tua conta.</p>
-        <p>Clica no botão abaixo para criar uma nova senha. Este link expira em 30 minutos:</p>
-        <a href="${linkRedefinicao}" style="padding: 10px 20px; background: #2563eb; color: white; text-decoration: none; border-radius: 5px; display: inline-block;">Redefinir Minha Senha</a>
-        <p>Se não pediste esta alteração, podes ignorar este e-mail.</p>
-      `,
-    };
+        // Usa Resend em vez de nodemailer
+        const { data, error: emailError } = await resend.emails.send({
+          from: "noreply@resend.dev", // ou seu domínio customizado
+          to: email,
+          subject: "Recuperação de Conta - Redefinir Senha",
+          html: `
+            <h3>Olá, ${profissional.nome}!</h3>
+            <p>Recebemos um pedido para redefinir a palavra-passe da tua conta.</p>
+            <p>Clica no botão abaixo para criar uma nova senha. Este link expira em 30 minutos:</p>
+            <a href="${linkRedefinicao}" style="padding: 10px 20px; background: #2563eb; color: white; text-decoration: none; border-radius: 5px; display: inline-block;">Redefinir Minha Senha</a>
+            <p>Se não pediste esta alteração, podes ignorar este e-mail.</p>
+          `,
+        });
 
-    await transporter.sendMail(mailOptions);
+        if (emailError) {
+          throw emailError;
+        }
 
-    return res
-      .status(200)
-      .json({ message: "E-mail de recuperação enviado com sucesso!" });
-  } catch (err) {
-    console.error("ERRO DETALHADO NO BACKEND:", err);
-    return res
-      .status(500)
-      .json({ error: "Erro ao processar pedido de recuperação." });
-  }
+        return res
+          .status(200)
+          .json({ message: "E-mail de recuperação enviado com sucesso!" });
+      } catch (err) {
+        console.error("ERRO DETALHADO NO BACKEND:", err);
+        return res
+          .status(500)
+          .json({ error: "Erro ao processar pedido de recuperação." });
+      }
+ 
 });
 
 // ----------------------------------------------------
