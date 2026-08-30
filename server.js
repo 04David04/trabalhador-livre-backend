@@ -4,6 +4,17 @@ const express = require("express");
 const cors = require("cors");
 const { createClient } = require("@supabase/supabase-js");
 const multer = require("multer");
+const nodemailer = require('nodemailer');
+const crypto = require('crypto');
+
+
+const transporter = nodemailer.createTransport({
+  service: 'gmail',
+  auth: {
+    user: process.env.EMAIL_USER, // Teu e-mail
+    pass: process.env.EMAIL_PASS  // Tua Senha de Aplicação do Gmail
+  }
+})
 
 // Extrai o caminho do ficheiro no Bucket a partir da URL completa
 function extrairCaminhoBucket(urlFoto) {
@@ -359,7 +370,7 @@ app.post("/api/login/verificar", async (req, res) => {
 
     if (errorEmail || !profissional) {
       return res.status(404).json({
-        error: "e-mail incorreto.",
+        error: "Nenhuma conta encontrada.",
         tipo: "0", // Tipo 1: Profissional não encontrado
       });
     }
@@ -478,6 +489,107 @@ app.put("/api/profissionais/:id", upload.single("foto"), async (req, res) => {
     return res.status(500).json({ error: "Erro interno ao atualizar perfil." });
   }
 });
+
+// ----------------------------------------------------
+// ROTA 1: Gerar Token e Enviar E-mail de Recuperação
+// ----------------------------------------------------
+app.post('/api/esqueci-senha', async (req, res) => {
+  const { email } = req.body;
+
+  try {
+    // 1. Procura o profissional no banco
+    const { data: profissional, error } = await supabase
+      .from('profissionais')
+      .select('*')
+      .eq('email', email)
+      .single();
+
+    if (error || !profissional) {
+      return res.status(404).json({ error: 'E-mail não encontrado.' });
+    }
+
+    // 2. Gera um token aleatório e define expiração (30 minutos)
+    const resetToken = crypto.randomBytes(32).toString('hex');
+    const tokenExpira = new Date(Date.now() + 30 * 60 * 1000).toISOString();
+
+    // 3. Guarda o token e expiração no banco de dados
+    await supabase
+      .from('profissionais')
+      .update({ reset_token: resetToken, reset_expira: tokenExpira })
+      .eq('id', profissional.id);
+
+    // 4. Cria o link de redefinição
+    const linkRedefinicao = `https://trabalhadorlivre.vercel.app/?token=${resetToken}&actualPage=redefinir-senha`;
+
+    // 5. Conteúdo do E-mail
+    const mailOptions = {
+      from: '"Suporte Plataforma" <trabalhadorlivremz@gmail.com>',
+      to: email,
+      subject: 'Recuperação de Conta - Redefinir Senha',
+      html: `
+        <h3>Olá, ${profissional.nome}!</h3>
+        <p>Recebemos um pedido para redefinir a palavra-passe da tua conta.</p>
+        <p>Clica no botão abaixo para criar uma nova senha. Este link expira em 30 minutos:</p>
+        <a href="${linkRedefinicao}" style="padding: 10px 20px; background: #2563eb; color: white; text-decoration: none; border-radius: 5px; display: inline-block;">Redefinir Minha Senha</a>
+        <p>Se não pediste esta alteração, podes ignorar este e-mail.</p>
+      `
+    };
+
+    await transporter.sendMail(mailOptions);
+    return res.status(200).json({ message: 'E-mail de recuperação enviado com sucesso!' });
+
+  } catch (err) {
+    return res.status(500).json({ error: 'Erro ao processar pedido de recuperação.' });
+  }
+});
+
+// ----------------------------------------------------
+// ROTA 2: Atualizar para a Nova Senha
+// ----------------------------------------------------
+app.post('/api/redefinir-senha', async (req, res) => {
+  const { token, novaSenha } = req.body;
+
+  try {
+    // 1. Procura o profissional que possui este token
+    const { data: profissional, error } = await supabase
+      .from('profissionais')
+      .select('*')
+      .eq('reset_token', token)
+      .single();
+
+    if (error || !profissional) {
+      return res.status(400).json({ error: 'Token inválido ou expirado.' });
+    }
+
+    // 2. Verifica se o token já expirou
+    if (new Date() > new Date(profissional.reset_expira)) {
+      return res.status(400).json({ error: 'O link de recuperação expirou. Pede um novo link.' });
+    }
+
+    // 3. Criptografa a nova senha
+    const senhaHash = await bcrypt.hash(novaSenha, 10);
+
+    // 4. Atualiza a senha no banco e limpa o token usado
+    await supabase
+      .from('profissionais')
+      .update({
+        senha: senhaHash,
+        reset_token: null,
+        reset_expira: null
+      })
+      .eq('id', profissional.id);
+
+    return res.status(200).json({ message: 'Senha redefinida com sucesso! Já podes fazer login.' });
+
+  } catch (err) {
+    return res.status(500).json({ error: 'Erro ao redefinir palavra-passe.' });
+  }
+});
+
+
+
+
+
 // Inicia o servidor na porta 5000
 app.listen(5000, () => {
   console.log("Servidor rodando na porta 5000");
