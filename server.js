@@ -1,8 +1,7 @@
 require("dotenv").config(); // Carrega as variáveis do .env
 
-import {Resend} from "resend";
 
-const resend = new Resend(process.env.RESEND_API_KEY);
+
 const bcrypt = require("bcrypt");
 const express = require("express");
 const cors = require("cors");
@@ -11,6 +10,8 @@ const multer = require("multer");
 const nodemailer = require("nodemailer");
 const crypto = require("crypto");
 const { Resend } = require("resend");
+
+const resend = new Resend(process.env.RESEND_API_KEY);
 
 
 
