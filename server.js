@@ -488,67 +488,82 @@ app.put("/api/profissionais/:id", upload.single("foto"), async (req, res) => {
 // ----------------------------------------------------
 // ROTA 1: Gerar Token e Enviar E-mail de Recuperação
 // ----------------------------------------------------
-app.post("/api/esquecisenha", async (req, res) => {
+// app.post("/api/esquecisenha", async (req, res) => {
+//   try {
+//     const email = String(req.body?.email || "")
+//       .trim()
+//       .toLowerCase();
+
+//     if (!email) {
+//       return res.status(400).json({ error: "E-mail obrigatório." });
+//     }
+
+//     const { data: profissional, error } = await supabase
+//       .from("profissionais")
+//       .select("*")
+//       .eq("email", email)
+//       .maybeSingle();
+
+//     if (error || !profissional) {
+//       return res.status(404).json({ error: "E-mail não encontrado." });
+//     }
+
+//     const resetToken = crypto.randomBytes(32).toString("hex");
+//     const tokenExpira = new Date(Date.now() + 30 * 60 * 1000).toISOString();
+
+//     const { error: updateError } = await supabase
+//       .from("profissionais")
+//       .update({ reset_token: resetToken, reset_expira: tokenExpira })
+//       .eq("id", profissional.id);
+
+//     if (updateError) {
+//       throw updateError;
+//     }
+
+//     const frontendUrl = process.env.FRONTEND_URL || "http://localhost:3000";
+//     const linkRedefinicao = `${frontendUrl}/?token=${resetToken}&actualPage=redefinir-senha`;
+
+//     const mailOptions = {
+//       from: '"Suporte Plataforma" <trabalhadorlivremz@gmail.com>',
+//       to: email,
+//       subject: "Recuperação de Conta - Redefinir Senha",
+//       html: `
+//         <h3>Olá, ${profissional.nome}!</h3>
+//         <p>Recebemos um pedido para redefinir a palavra-passe da tua conta.</p>
+//         <p>Clica no botão abaixo para criar uma nova senha. Este link expira em 30 minutos:</p>
+//         <a href="${linkRedefinicao}" style="padding: 10px 20px; background: #2563eb; color: white; text-decoration: none; border-radius: 5px; display: inline-block;">Redefinir Minha Senha</a>
+//         <p>Se não pediste esta alteração, podes ignorar este e-mail.</p>
+//       `,
+//     };
+
+//     await transporter.sendMail(mailOptions);
+
+//     return res
+//       .status(200)
+//       .json({ message: "E-mail de recuperação enviado com sucesso!" });
+//   } catch (err) {
+//     console.error("ERRO DETALHADO NO BACKEND:", err);
+//     return res
+//       .status(500)
+//       .json({ error: "Erro ao processar pedido de recuperação." });
+//   }
+// });
+
+app.post('/api/esquecisenha', async (req, res) => {
   try {
-    const email = String(req.body?.email || "")
-      .trim()
-      .toLowerCase();
-
-    if (!email) {
-      return res.status(400).json({ error: "E-mail obrigatório." });
-    }
-
-    const { data: profissional, error } = await supabase
-      .from("profissionais")
-      .select("*")
-      .eq("email", email)
-      .maybeSingle();
-
-    if (error || !profissional) {
-      return res.status(404).json({ error: "E-mail não encontrado." });
-    }
-
-    const resetToken = crypto.randomBytes(32).toString("hex");
-    const tokenExpira = new Date(Date.now() + 30 * 60 * 1000).toISOString();
-
-    const { error: updateError } = await supabase
-      .from("profissionais")
-      .update({ reset_token: resetToken, reset_expira: tokenExpira })
-      .eq("id", profissional.id);
-
-    if (updateError) {
-      throw updateError;
-    }
-
-    const frontendUrl = process.env.FRONTEND_URL || "http://localhost:3000";
-    const linkRedefinicao = `${frontendUrl}/?token=${resetToken}&actualPage=redefinir-senha`;
-
-    const mailOptions = {
-      from: '"Suporte Plataforma" <trabalhadorlivremz@gmail.com>',
-      to: email,
-      subject: "Recuperação de Conta - Redefinir Senha",
-      html: `
-        <h3>Olá, ${profissional.nome}!</h3>
-        <p>Recebemos um pedido para redefinir a palavra-passe da tua conta.</p>
-        <p>Clica no botão abaixo para criar uma nova senha. Este link expira em 30 minutos:</p>
-        <a href="${linkRedefinicao}" style="padding: 10px 20px; background: #2563eb; color: white; text-decoration: none; border-radius: 5px; display: inline-block;">Redefinir Minha Senha</a>
-        <p>Se não pediste esta alteração, podes ignorar este e-mail.</p>
-      `,
-    };
-
-    await transporter.sendMail(mailOptions);
-
-    return res
-      .status(200)
-      .json({ message: "E-mail de recuperação enviado com sucesso!" });
+    // ... teu código atual de verificação e envio de e-mail ...
   } catch (err) {
-    console.error("ERRO DETALHADO NO BACKEND:", err);
-    return res
-      .status(500)
-      .json({ error: "Erro ao processar pedido de recuperação." });
+    // ⚠️ IMPRIME O ERRO NO TERMINAL DO VS CODE:
+    console.error('--- ERRO REAL NO BACKEND ---');
+    console.error(err);
+
+    // DEVOLVE O ERRO DETALHADO PARA O FRONT-END:
+    return res.status(500).json({ 
+      error: `Erro Interno: ${err.message}`, 
+      tipo: '500' 
+    });
   }
 });
-
 // ----------------------------------------------------
 // ROTA 2: Atualizar para a Nova Senha
 // ----------------------------------------------------
