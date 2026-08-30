@@ -4,17 +4,16 @@ const express = require("express");
 const cors = require("cors");
 const { createClient } = require("@supabase/supabase-js");
 const multer = require("multer");
-const nodemailer = require('nodemailer');
-const crypto = require('crypto');
-
+const nodemailer = require("nodemailer");
+const crypto = require("crypto");
 
 const transporter = nodemailer.createTransport({
-  service: 'gmail',
+  service: "gmail",
   auth: {
     user: process.env.EMAIL_USER, // Teu e-mail
-    pass: process.env.EMAIL_PASS  // Tua Senha de Aplicação do Gmail
-  }
-})
+    pass: process.env.EMAIL_PASS, // Tua Senha de Aplicação do Gmail
+  },
+});
 
 // Extrai o caminho do ficheiro no Bucket a partir da URL completa
 function extrairCaminhoBucket(urlFoto) {
@@ -307,12 +306,10 @@ app.post("/api/login", async (req, res) => {
 
     // 3. Verifica se a senha existe e compara corretamente
     if (!profissional.senha) {
-      return res
-        .status(401)
-        .json({
-          error: "Este profissional não tem senha válida no sistema.",
-          tipo: "2",
-        });
+      return res.status(401).json({
+        error: "Este profissional não tem senha válida no sistema.",
+        tipo: "2",
+      });
     }
 
     let senhaValida = false;
@@ -351,9 +348,7 @@ app.post("/api/login/verificar", async (req, res) => {
     const { email } = req.body || {};
     // 1. Validação simples
     if (!email) {
-      return res
-        .status(400)
-        .json({ error: "Por favor, preencha o e-mail." });
+      return res.status(400).json({ error: "Por favor, preencha o e-mail." });
     }
 
     const termo = email.trim();
@@ -366,7 +361,7 @@ app.post("/api/login/verificar", async (req, res) => {
       .eq("email", termo)
       .maybeSingle();
 
-    const profissional =  profissionalPorEmail;
+    const profissional = profissionalPorEmail;
 
     if (errorEmail || !profissional) {
       return res.status(404).json({
@@ -379,7 +374,7 @@ app.post("/api/login/verificar", async (req, res) => {
 
     // 5. Retorna sucesso e os dados do profissional
     res.status(200).json({
-      message: "Conta encontrada!"
+      message: "Conta encontrada!",
     });
   } catch (error) {
     console.error("Erro no login:", error);
@@ -493,79 +488,90 @@ app.put("/api/profissionais/:id", upload.single("foto"), async (req, res) => {
 // ----------------------------------------------------
 // ROTA 1: Gerar Token e Enviar E-mail de Recuperação
 // ----------------------------------------------------
-app.post('/api/esquecisenha', async (req, res) => {
-  const { email } = req.body;
-
+app.post("/api/esquecisenha", async (req, res) => {
   try {
-    // 1. Procura o profissional no banco
-    const { data: profissional, error } = await supabase
-      .from('profissionais')
-      .select('*')
-      .eq('email', email)
-      .single();
+    const email = String(req.body?.email || "")
+      .trim()
+      .toLowerCase();
 
-    if (error || !profissional) {
-      return res.status(404).json({ error: 'E-mail não encontrado.' });
+    if (!email) {
+      return res.status(400).json({ error: "E-mail obrigatório." });
     }
 
-    // 2. Gera um token aleatório e define expiração (30 minutos)
-    const resetToken = crypto.randomBytes(32).toString('hex');
+    const { data: profissional, error } = await supabase
+      .from("profissionais")
+      .select("*")
+      .eq("email", email)
+      .maybeSingle();
+
+    if (error || !profissional) {
+      return res.status(404).json({ error: "E-mail não encontrado." });
+    }
+
+    const resetToken = crypto.randomBytes(32).toString("hex");
     const tokenExpira = new Date(Date.now() + 30 * 60 * 1000).toISOString();
 
-    // 3. Guarda o token e expiração no banco de dados
-    await supabase
-      .from('profissionais')
+    const { error: updateError } = await supabase
+      .from("profissionais")
       .update({ reset_token: resetToken, reset_expira: tokenExpira })
-      .eq('id', profissional.id);
+      .eq("id", profissional.id);
 
-    // 4. Cria o link de redefinição
-    const linkRedefinicao = `https://trabalhadorlivre.vercel.app/?token=${resetToken}&actualPage=redefinir-senha`;
+    if (updateError) {
+      throw updateError;
+    }
 
-    // 5. Conteúdo do E-mail
+    const frontendUrl = process.env.FRONTEND_URL || "http://localhost:3000";
+    const linkRedefinicao = `${frontendUrl}/?token=${resetToken}&actualPage=redefinir-senha`;
+
     const mailOptions = {
       from: '"Suporte Plataforma" <trabalhadorlivremz@gmail.com>',
       to: email,
-      subject: 'Recuperação de Conta - Redefinir Senha',
+      subject: "Recuperação de Conta - Redefinir Senha",
       html: `
         <h3>Olá, ${profissional.nome}!</h3>
         <p>Recebemos um pedido para redefinir a palavra-passe da tua conta.</p>
         <p>Clica no botão abaixo para criar uma nova senha. Este link expira em 30 minutos:</p>
         <a href="${linkRedefinicao}" style="padding: 10px 20px; background: #2563eb; color: white; text-decoration: none; border-radius: 5px; display: inline-block;">Redefinir Minha Senha</a>
         <p>Se não pediste esta alteração, podes ignorar este e-mail.</p>
-      `
+      `,
     };
 
     await transporter.sendMail(mailOptions);
-    return res.status(200).json({ message: 'E-mail de recuperação enviado com sucesso!' });
 
+    return res
+      .status(200)
+      .json({ message: "E-mail de recuperação enviado com sucesso!" });
   } catch (err) {
-
-    console.error('ERRO DETALHADO NO BACKEND:', err);
-    return res.status(500).json({ error: 'Erro ao processar pedido de recuperação.' });
+    console.error("ERRO DETALHADO NO BACKEND:", err);
+    return res
+      .status(500)
+      .json({ error: "Erro ao processar pedido de recuperação." });
   }
 });
 
 // ----------------------------------------------------
 // ROTA 2: Atualizar para a Nova Senha
 // ----------------------------------------------------
-app.post('/api/redefinir-senha', async (req, res) => {
+app.post("/api/redefinir-senha", async (req, res) => {
   const { token, novaSenha } = req.body;
 
   try {
     // 1. Procura o profissional que possui este token
     const { data: profissional, error } = await supabase
-      .from('profissionais')
-      .select('*')
-      .eq('reset_token', token)
+      .from("profissionais")
+      .select("*")
+      .eq("reset_token", token)
       .single();
 
     if (error || !profissional) {
-      return res.status(400).json({ error: 'Token inválido ou expirado.' });
+      return res.status(400).json({ error: "Token inválido ou expirado." });
     }
 
     // 2. Verifica se o token já expirou
     if (new Date() > new Date(profissional.reset_expira)) {
-      return res.status(400).json({ error: 'O link de recuperação expirou. Pede um novo link.' });
+      return res
+        .status(400)
+        .json({ error: "O link de recuperação expirou. Pede um novo link." });
     }
 
     // 3. Criptografa a nova senha
@@ -573,24 +579,21 @@ app.post('/api/redefinir-senha', async (req, res) => {
 
     // 4. Atualiza a senha no banco e limpa o token usado
     await supabase
-      .from('profissionais')
+      .from("profissionais")
       .update({
         senha: senhaHash,
         reset_token: null,
-        reset_expira: null
+        reset_expira: null,
       })
-      .eq('id', profissional.id);
+      .eq("id", profissional.id);
 
-    return res.status(200).json({ message: 'Senha redefinida com sucesso! Já podes fazer login.' });
-
+    return res
+      .status(200)
+      .json({ message: "Senha redefinida com sucesso! Já podes fazer login." });
   } catch (err) {
-    return res.status(500).json({ error: 'Erro ao redefinir palavra-passe.' });
+    return res.status(500).json({ error: "Erro ao redefinir palavra-passe." });
   }
 });
-
-
-
-
 
 // Inicia o servidor na porta 5000
 app.listen(5000, () => {
