@@ -334,6 +334,50 @@ app.post("/api/login", async (req, res) => {
     });
   }
 });
+// ROTA DE LOGIN (Aceita Contacto ou E-mail)
+app.post("/api/login/verificar", async (req, res) => {
+  try {
+    const { email } = req.body || {};
+    // 1. Validação simples
+    if (!email) {
+      return res
+        .status(400)
+        .json({ error: "Por favor, preencha o e-mail." });
+    }
+
+    const termo = email.trim();
+
+    // 2. Busca o profissional por telefone ou email de forma mais segura
+
+    const { data: profissionalPorEmail, error: errorEmail } = await supabase
+      .from("profissionais")
+      .select("*")
+      .eq("email", termo)
+      .maybeSingle();
+
+    const profissional =  profissionalPorEmail;
+
+    if (errorEmail || !profissional) {
+      return res.status(404).json({
+        error: "e-mail incorreto.",
+        tipo: "0", // Tipo 1: Profissional não encontrado
+      });
+    }
+    // 4. Remove a senha do objeto antes de enviar ao Front-end por segurança
+    delete profissional.email;
+
+    // 5. Retorna sucesso e os dados do profissional
+    res.status(200).json({
+      message: "Conta encontrada!"
+    });
+  } catch (error) {
+    console.error("Erro no login:", error);
+    res.status(500).json({
+      error:
+        error.message || "Erro interno no servidor ao tentar realizar o login.",
+    });
+  }
+});
 
 // ROTA: Atualizar perfil do profissional
 app.put("/api/profissionais/:id", upload.single("foto"), async (req, res) => {
