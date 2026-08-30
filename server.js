@@ -525,15 +525,44 @@ app.post("/api/esquecisenha", async (req, res) => {
 
         // Usa Resend em vez de nodemailer
         const { data, error: emailError } = await resend.emails.send({
-          from: "noreply@resend.dev", // ou seu domínio customizado
+          from: "trabalhadorlivremz@gmail.com", // ou seu domínio customizado
           to: email,
           subject: "Recuperação de Conta - Redefinir Senha",
           html: `
-            <h3>Olá, ${profissional.nome}!</h3>
-            <p>Recebemos um pedido para redefinir a palavra-passe da tua conta.</p>
-            <p>Clica no botão abaixo para criar uma nova senha. Este link expira em 30 minutos:</p>
-            <a href="${linkRedefinicao}" style="padding: 10px 20px; background: #2563eb; color: white; text-decoration: none; border-radius: 5px; display: inline-block;">Redefinir Minha Senha</a>
-            <p>Se não pediste esta alteração, podes ignorar este e-mail.</p>
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px; background-color: #ffffff;">
+                  <!-- Cabeçalho com a Marca -->
+                  <div style="text-align: center; padding-bottom: 20px; border-bottom: 2px solid #f1f5f9;">
+                    <h1 style="color: #1e293b; margin: 0; font-size: 24px;">ServiçosLocais</h1>
+                    <p style="color: #64748b; margin: 4px 0 0 0; font-size: 13px;">Plataforma de Visibilidade para Profissionais Independentes</p>
+                  </div>
+
+                  <!-- Corpo da Mensagem -->
+                  <div style="padding: 24px 0; color: #334155; line-height: 1.6;">
+                    <p style="font-size: 16px; margin-top: 0;">Olá, <strong>${profissional.nome}</strong>,</p>
+                    
+                    <p>Recebemos uma solicitação para a redefinição da palavra-passe associada à tua conta profissional.</p>
+                    
+                    <p>Para criar uma nova credencial e restabelecer o teu acesso em segurança, clica no botão abaixo:</p>
+                    
+                    <!-- Botão de Ação -->
+                    <div style="text-align: center; margin: 30px 0;">
+                      <a href="${linkRedefinicao}" style="background-color: #2563eb; color: #ffffff; padding: 12px 24px; text-decoration: none; font-weight: bold; border-radius: 6px; display: inline-block; font-size: 15px;">
+                        Redefinir Palavra-passe
+                      </a>
+                    </div>
+                    
+                    <p style="font-size: 13px; color: #64748b; background-color: #f8fafc; padding: 12px; border-left: 4px solid #2563eb; border-radius: 4px;">
+                      <strong>Nota de Segurança:</strong> Este link é de utilização única e expira automaticamente em <strong>30 minutos</strong>. Se não solicitaste esta alteração, podes ignorar este e-mail com segurança — a tua senha atual permanecerá inalterada.
+                    </p>
+                  </div>
+
+                  <!-- Rodapé Profissional -->
+                  <div style="border-top: 1px solid #f1f5f9; padding-top: 20px; text-align: center; color: #94a3b8; font-size: 12px;">
+                    <p style="margin: 0;">Este é um e-mail automático enviado pelo sistema de segurança da <strong>ServiçosLocais</strong>.</p>
+                    <p style="margin: 4px 0 0 0;">Por favor, não me responda a esta mensagem.</p>
+                  </div>
+
+                </div>
           `,
         });
 
