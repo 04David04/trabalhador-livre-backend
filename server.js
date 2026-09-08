@@ -521,7 +521,7 @@ app.post("/api/esquecisenha", async (req, res) => {
         }
 
         const frontendUrl = process.env.FRONTEND_URL;
-        const linkRedefinicao = `${frontendUrl}/?token=${resetToken}&actualPage=redefinir-senha`;
+        const linkRedefinicao = `${frontendUrl}/?token=${resetToken}&Page=1`;
 
         // Usa Resend em vez de nodemailer
         const { data, error: emailError } = await resend.emails.send({
