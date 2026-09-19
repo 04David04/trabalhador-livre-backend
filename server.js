@@ -634,6 +634,29 @@ app.post("/api/redefinir-senha", async (req, res) => {
   }
 });
 
+
+// Avaliacoes
+
+// Buscar histórico de avaliações do profissional logado
+app.get('/api/profissionais/:id/avaliacoes', async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    const { data, error } = await supabase
+      .from('avaliacoes')
+      .select('*')
+      .eq('profissional_id', id)
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+
+    res.status(200).json(data || []);
+  } catch (erro) {
+    console.error('Erro ao buscar avaliações:', erro.message);
+    res.status(500).json({ error: 'Erro ao carregar histórico de avaliações.' });
+  }
+});
+
 // Inicia o servidor na porta 5000
 app.listen(5000, () => {
   console.log("Servidor rodando na porta 5000");
