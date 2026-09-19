@@ -66,14 +66,14 @@ app.get("/api/profissionais", async (req, res) => {
 app.post("/api/avaliacoes", async (req, res) => {
   try {
     // 1. Extraímos os dados que o cliente envia no formulário
-    const { profissional, contacto, classificacao, ponto, comentario } =
+    const { profissional, contacto, classificacao, ponto, comentario, nome, email } =
       req.body;
 
     // 1.a Validação de campos obrigatórios
-    if (!profissional || !ponto || !classificacao || !comentario) {
+    if (!profissional || !ponto || !classificacao || !comentario || !nome ) {
       return res.status(400).json({
         error:
-          "Por favor, preencha os campos obrigatórios: classificação e comentário.",
+          "Por favor, preencha os campos obrigatórios: classificaçã, comentário, nome e contacto.",
       });
     }
 
@@ -82,10 +82,12 @@ app.post("/api/avaliacoes", async (req, res) => {
       {
         classificacao,
         comentario,
-        status: "PENDENTE", // Todas as avaliações entram em moderação por padrão
+        status: "PENDENTE",
         profissional,
         ponto,
         contacto: contacto || "Anónimo",
+        nome,
+        email,
       },
     ]);
 
