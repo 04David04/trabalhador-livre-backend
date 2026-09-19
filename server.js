@@ -645,7 +645,7 @@ app.get('/api/profissionais/:id/avaliacoes', async (req, res) => {
     const { data, error } = await supabase
       .from('avaliacoes')
       .select('*')
-      .eq('profissional_id', id)
+      .eq('profissional', id)
       .order('created_at', { ascending: false });
 
     if (error) throw error;
