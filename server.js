@@ -278,6 +278,36 @@ app.get('/api/areas', async (req, res) => {
   }
 });
 
+// ==========================================
+// ROTA: ALTERAR STATUS DE APROVAÇÃO DO PROFISSIONAL
+// PATCH /api/admin/profissionais/:id/condicao
+// ==========================================
+app.patch('/api/admin/profissionais/:id/condicao', async (req, res) => {
+  const { id } = req.params;
+  const { condicao } = req.body; // Espera: 'Aprovado' ou 'Rejeitado'
+
+  if (!['Aprovado', 'Rejeitado'].includes(condicao)) {
+    return res.status(400).json({ error: 'Condição inválida.' });
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from('profissionais')
+      .update({ condicao })
+      .eq('id', id)
+      .select();
+
+    if (error) throw error;
+
+    return res.status(200).json({
+      message: `Profissional ${condicao.toLowerCase()} com sucesso!`,
+      profissional: data[0]
+    });
+  } catch (err) {
+    console.error('Erro ao atualizar condição do profissional:', err);
+    return res.status(500).json({ error: 'Erro ao atualizar estado do profissional.' });
+  }
+});
 
 
 // ROTA: Cadastrar novo profissional com Foto Automática
