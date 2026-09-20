@@ -309,6 +309,60 @@ app.patch('/api/admin/profissionais/:id/condicao', async (req, res) => {
   }
 });
 
+// ==========================================
+// ROTA 1: ATUALIZAR STATUS/FLAGS DO PROFISSIONAL (Verificado, Destaque, Ativo)
+// PATCH /api/admin/profissionais/:id/status
+// ==========================================
+app.patch('/api/admin/profissionais/:id/status', async (req, res) => {
+  const { id } = req.params;
+  const { verificado, destaque, ativo } = req.body;
+
+  // Cria o objeto apenas com os campos que foram enviados na requisição
+  const camposAtualizar = {};
+  if (typeof verificado !== 'undefined') camposAtualizar.verificado = verificado;
+  if (typeof destaque !== 'undefined') camposAtualizar.destaque = destaque;
+  if (typeof ativo !== 'undefined') camposAtualizar.ativo = ativo;
+
+  try {
+    const { data, error } = await supabase
+      .from('profissionais')
+      .update(camposAtualizar)
+      .eq('id', id)
+      .select();
+
+    if (error) throw error;
+
+    return res.status(200).json({
+      message: 'Status atualizado com sucesso!',
+      profissional: data[0]
+    });
+  } catch (err) {
+    console.error('Erro ao atualizar status do profissional:', err);
+    return res.status(500).json({ error: 'Erro ao atualizar status do profissional.' });
+  }
+});
+
+// ==========================================
+// ROTA 2: ELIMINAR PROFISSIONAL DEFINITIVAMENTE
+// DELETE /api/admin/profissionais/:id
+// ==========================================
+app.delete('/api/admin/profissionais/:id', async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    const { error } = await supabase
+      .from('profissionais')
+      .delete()
+      .eq('id', id);
+
+    if (error) throw error;
+
+    return res.status(200).json({ message: 'Profissional eliminado com sucesso!' });
+  } catch (err) {
+    console.error('Erro ao eliminar profissional:', err);
+    return res.status(500).json({ error: 'Erro ao eliminar profissional.' });
+  }
+});
 
 // ROTA: Cadastrar novo profissional com Foto Automática
 app.post("/api/profissionais", upload.single("foto"), async (req, res) => {
