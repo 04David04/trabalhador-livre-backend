@@ -42,12 +42,9 @@ const supabase = createClient(supabaseUrl, supabaseServiceKey);
 // Configuração do Multer para receber ficheiros na memória
 const upload = multer({ storage: multer.memoryStorage() });
 
-// Rota de teste inicial
-app.get("/", (req, res) => {
-  res.send("O meu servidor está VIVO e configurado!");
-});
 
-// 2. ROTA REAL: Buscar a lista de profissionais da base de dados
+
+// 1. ROTA REAL: Buscar a lista de profissionais da base de dados
 app.get("/api/profissionais", async (req, res) => {
   try {
     // Consulta a tabela 'profissionais' do Supabase
@@ -102,163 +99,6 @@ app.post("/api/avaliacoes", async (req, res) => {
   }
 });
 
-/* =========================================================
-   ROTAS DE ADMINISTRAÇÃO (MODERAÇÃO)
-   ========================================================= */
-
-// 1. Admin busca todas as avaliações (podes filtrar por status: ?status=PENDENTE)
-app.get("/api/admin/avaliacoes", async (req, res) => {
-  try {
-    const { status } = req.query; // Pega o parâmetro da URL (ex: ?status=PENDENTE)
-
-    let query = supabase
-      .from("avaliacoes")
-      .select("*, profissionais(nome, profissao)");
-
-    if (status) {
-      query = query.eq("status", status);
-    }
-
-    const { data, error } = await query.order("created_at", {
-      ascending: false,
-    });
-
-    if (error) throw error;
-    res.json(data);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// 2. Admin APROVA a avaliação e SOMA os pontos ao profissional
-app.patch("/api/admin/avaliacoes/:id/aprovar", async (req, res) => {
-  try {
-    const { id } = req.params; // ID da avaliação
-    const { profissional_id, pontos } = req.body; // Dados vindos do Front-end
-
-    // A. Mudar o status da avaliação para APROVADO
-    const { error: errorAval } = await supabase
-      .from("avaliacoes")
-      .update({ status: "APROVADO" })
-      .eq("id", id);
-
-    if (errorAval) throw errorAval;
-
-    // B. Buscar os pontos atuais do profissional
-    const { data: prof, error: errorProf } = await supabase
-      .from("profissionais")
-      .select("pontos_totais")
-      .eq("id", profissional_id)
-      .single();
-
-    if (errorProf) throw errorProf;
-
-    // C. Calcular a nova pontuação e atualizar o profissional
-    const novaPontuacao = (prof.pontos_totais || 0) + Number(pontos);
-
-    const { error: errorUpdate } = await supabase
-      .from("profissionais")
-      .update({ pontos_totais: novaPontuacao })
-      .eq("id", profissional_id);
-
-    if (errorUpdate) throw errorUpdate;
-
-    res.json({
-      message: "Avaliação aprovada e pontos do profissional atualizados!",
-    });
-  } catch (error) {
-    res.status(400).json({ error: error.message });
-  }
-});
-
-// 3. Admin REJEITA a avaliação
-app.patch("/api/admin/avaliacoes/:id/rejeitar", async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    const { error } = await supabase
-      .from("avaliacoes")
-      .update({ status: "REJEITADO" })
-      .eq("id", id);
-
-    if (error) throw error;
-    res.json({ message: "Avaliação rejeitada." });
-  } catch (error) {
-    res.status(400).json({ error: error.message });
-  }
-});
-
-  // ==========================================
-  // ROTA: CADASTRAR NOVA ÁREA
-  // POST /api/areas
-  // ==========================================
-  app.post('/admin/api/areas/cadastrar', upload.single('foto'), async (req, res) => {
-    try {
-      const { nome, oque_faz, quando_chamar } = req.body;
-
-      // Validação básica
-      if (!nome) {
-        return res.status(400).json({ error: 'O nome da área é obrigatório.' });
-      }
-
-      let fotoUrl = null;
-
-      // Se uma foto/imagem for enviada no formulário
-      if (req.file) {
-        const fileExt = req.file.originalname.split('.').pop();
-        const fileName = `area_${Date.now()}.${fileExt}`;
-        const filePath = `areas/${fileName}`;
-
-        // Upload para o bucket público 'areas-images' do Supabase Storage
-        const { data: storageData, error: storageError } = await supabase.storage
-          .from('areas-images') // Nome do bucket no teu Supabase Storage
-          .upload(filePath, req.file.buffer, {
-            contentType: req.file.mimetype,
-            upsert: true
-          });
-
-        if (storageError) {
-          console.error('Erro no upload da foto da área:', storageError);
-          return res.status(500).json({ error: 'Erro ao carregar a foto da área.' });
-        }
-
-        // Obter o URL público da foto carregada
-        const { data: publicUrlData } = supabase.storage
-          .from('areas-images')
-          .getPublicUrl(filePath);
-
-        fotoUrl = publicUrlData.publicUrl;
-      }
-
-      // Inserção na tabela 'areas'
-      const { data, error } = await supabase
-        .from('areas')
-        .insert([
-          {
-            nome,
-            oque_faz: oque_faz || null,
-            quando_chamar: quando_chamar || null,
-            foto: fotoUrl
-          }
-        ])
-        .select();
-
-      if (error) {
-        console.error('Erro ao inserir área no Supabase:', error);
-        return res.status(400).json({ error: error.message });
-      }
-
-      return res.status(201).json({
-        message: 'Área cadastrada com sucesso!',
-        area: data[0]
-      });
-
-    } catch (err) {
-      console.error('Erro interno do servidor:', err);
-      return res.status(500).json({ error: 'Erro interno no servidor ao cadastrar área.' });
-    }
-  });
-
 // ==========================================
 // ROTA: LISTAR TODAS AS ÁREAS
 // ==========================================
@@ -275,92 +115,6 @@ app.get('/api/areas', async (req, res) => {
   } catch (err) {
     console.error('Erro ao listar áreas:', err);
     return res.status(500).json({ error: 'Erro ao carregar as áreas.' });
-  }
-});
-
-// ==========================================
-// ROTA: ALTERAR STATUS DE APROVAÇÃO DO PROFISSIONAL
-// PATCH /api/admin/profissionais/:id/condicao
-// ==========================================
-app.patch('/api/admin/profissionais/:id/condicao', async (req, res) => {
-  const { id } = req.params;
-  const { condicao } = req.body; // Espera: 'Aprovado' ou 'Rejeitado'
-
-  if (!['Aprovado', 'Rejeitado'].includes(condicao)) {
-    return res.status(400).json({ error: 'Condição inválida.' });
-  }
-
-  try {
-    const { data, error } = await supabase
-      .from('profissionais')
-      .update({ condicao })
-      .eq('id', id)
-      .select();
-
-    if (error) throw error;
-
-    return res.status(200).json({
-      message: `Profissional ${condicao.toLowerCase()} com sucesso!`,
-      profissional: data[0]
-    });
-  } catch (err) {
-    console.error('Erro ao atualizar condição do profissional:', err);
-    return res.status(500).json({ error: 'Erro ao atualizar estado do profissional.' });
-  }
-});
-
-// ==========================================
-// ROTA 1: ATUALIZAR STATUS/FLAGS DO PROFISSIONAL (Verificado, Destaque, Ativo)
-// PATCH /api/admin/profissionais/:id/status
-// ==========================================
-app.patch('/api/admin/profissionais/:id/status', async (req, res) => {
-  const { id } = req.params;
-  const { verificado, destaque, ativo } = req.body;
-
-  // Cria o objeto apenas com os campos que foram enviados na requisição
-  const camposAtualizar = {};
-  if (typeof verificado !== 'undefined') camposAtualizar.verificado = verificado;
-  if (typeof destaque !== 'undefined') camposAtualizar.destaque = destaque;
-  if (typeof ativo !== 'undefined') camposAtualizar.ativo = ativo;
-
-  try {
-    const { data, error } = await supabase
-      .from('profissionais')
-      .update(camposAtualizar)
-      .eq('id', id)
-      .select();
-
-    if (error) throw error;
-
-    return res.status(200).json({
-      message: 'Status atualizado com sucesso!',
-      profissional: data[0]
-    });
-  } catch (err) {
-    console.error('Erro ao atualizar status do profissional:', err);
-    return res.status(500).json({ error: 'Erro ao atualizar status do profissional.' });
-  }
-});
-
-// ==========================================
-// ROTA 2: ELIMINAR PROFISSIONAL DEFINITIVAMENTE
-// DELETE /api/admin/profissionais/:id
-// ==========================================
-app.delete('/api/admin/profissionais/:id', async (req, res) => {
-  const { id } = req.params;
-
-  try {
-    const { error } = await supabase
-      .from('profissionais')
-      .delete()
-      .eq('id', id);
-
-    if (error) throw error;
-
-    return res.status(200).json({ message: 'Profissional eliminado com sucesso!' });
-  } catch (err) {
-    console.error('Erro ao eliminar profissional:', err);
-    return res.status(500).json({ error: 'Erro ao eliminar profissional.' });
   }
 });
 
@@ -524,6 +278,7 @@ app.post("/api/login", async (req, res) => {
     });
   }
 });
+
 // ROTA DE LOGIN (Aceita Contacto ou E-mail)
 app.post("/api/login/verificar", async (req, res) => {
   try {
@@ -818,9 +573,6 @@ app.post("/api/redefinir-senha", async (req, res) => {
   }
 });
 
-
-// Avaliacoes
-
 // Buscar histórico de avaliações do profissional logado
 app.get('/api/profissionais/:id/avaliacoes', async (req, res) => {
   const { id } = req.params;
@@ -840,6 +592,76 @@ app.get('/api/profissionais/:id/avaliacoes', async (req, res) => {
     res.status(500).json({ error: 'Erro ao carregar histórico de avaliações.' });
   }
 });
+
+
+/* =========================================================
+   ROTAS DE ADMINISTRAÇÃO (MODERAÇÃO)
+   ========================================================= */
+
+   // ==========================================
+// ROTA: ALTERAR STATUS DE APROVAÇÃO DO PROFISSIONAL
+// PATCH /api/admin/profissionais/:id/condicao
+// ==========================================
+app.patch('/api/admin/profissionais/:id/condicao', async (req, res) => {
+  const { id } = req.params;
+  const { condicao } = req.body; // Espera: 'Aprovado' ou 'Rejeitado'
+
+  if (!['Aprovado', 'Rejeitado'].includes(condicao)) {
+    return res.status(400).json({ error: 'Condição inválida.' });
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from('profissionais')
+      .update({ condicao })
+      .eq('id', id)
+      .select();
+
+    if (error) throw error;
+
+    return res.status(200).json({
+      message: `Profissional ${condicao.toLowerCase()} com sucesso!`,
+      profissional: data[0]
+    });
+  } catch (err) {
+    console.error('Erro ao atualizar condição do profissional:', err);
+    return res.status(500).json({ error: 'Erro ao atualizar estado do profissional.' });
+  }
+});
+
+// ==========================================
+// ROTA: ATUALIZAR STATUS DE VERIFICADO, DESTAQUE E BLOQUEIO (INDEPENDENTES)
+// PATCH /api/admin/profissionais/:id/status
+// ==========================================
+app.patch('/api/admin/profissionais/:id/status', async (req, res) => {
+  const { id } = req.params;
+  const { verificado, destaque, bloqueado } = req.body;
+
+  const camposAtualizar = {};
+
+  if (typeof verificado !== 'undefined') camposAtualizar.verificado = verificado;
+  if (typeof destaque !== 'undefined') camposAtualizar.destaque = destaque;
+  if (typeof bloqueado !== 'undefined') camposAtualizar.bloqueado = bloqueado;
+
+  try {
+    const { data, error } = await supabase
+      .from('profissionais')
+      .update(camposAtualizar)
+      .eq('id', id)
+      .select();
+
+    if (error) throw error;
+
+    return res.status(200).json({
+      message: 'Status do profissional atualizado com sucesso!',
+      profissional: data[0]
+    });
+  } catch (err) {
+    console.error('Erro ao atualizar status do profissional:', err);
+    return res.status(500).json({ error: 'Erro ao atualizar status do profissional.' });
+  }
+});
+
 
 // Inicia o servidor na porta 5000
 app.listen(5000, () => {
