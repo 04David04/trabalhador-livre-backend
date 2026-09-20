@@ -188,6 +188,98 @@ app.patch("/api/admin/avaliacoes/:id/rejeitar", async (req, res) => {
   }
 });
 
+  // ==========================================
+  // ROTA: CADASTRAR NOVA ÁREA
+  // POST /api/areas
+  // ==========================================
+  app.post('/admin/api/areas/cadastrar', upload.single('foto'), async (req, res) => {
+    try {
+      const { nome, oque_faz, quando_chamar } = req.body;
+
+      // Validação básica
+      if (!nome) {
+        return res.status(400).json({ error: 'O nome da área é obrigatório.' });
+      }
+
+      let fotoUrl = null;
+
+      // Se uma foto/imagem for enviada no formulário
+      if (req.file) {
+        const fileExt = req.file.originalname.split('.').pop();
+        const fileName = `area_${Date.now()}.${fileExt}`;
+        const filePath = `areas/${fileName}`;
+
+        // Upload para o bucket público 'areas-images' do Supabase Storage
+        const { data: storageData, error: storageError } = await supabase.storage
+          .from('areas-images') // Nome do bucket no teu Supabase Storage
+          .upload(filePath, req.file.buffer, {
+            contentType: req.file.mimetype,
+            upsert: true
+          });
+
+        if (storageError) {
+          console.error('Erro no upload da foto da área:', storageError);
+          return res.status(500).json({ error: 'Erro ao carregar a foto da área.' });
+        }
+
+        // Obter o URL público da foto carregada
+        const { data: publicUrlData } = supabase.storage
+          .from('areas-images')
+          .getPublicUrl(filePath);
+
+        fotoUrl = publicUrlData.publicUrl;
+      }
+
+      // Inserção na tabela 'areas'
+      const { data, error } = await supabase
+        .from('areas')
+        .insert([
+          {
+            nome,
+            oque_faz: oque_faz || null,
+            quando_chamar: quando_chamar || null,
+            foto: fotoUrl
+          }
+        ])
+        .select();
+
+      if (error) {
+        console.error('Erro ao inserir área no Supabase:', error);
+        return res.status(400).json({ error: error.message });
+      }
+
+      return res.status(201).json({
+        message: 'Área cadastrada com sucesso!',
+        area: data[0]
+      });
+
+    } catch (err) {
+      console.error('Erro interno do servidor:', err);
+      return res.status(500).json({ error: 'Erro interno no servidor ao cadastrar área.' });
+    }
+  });
+
+// ==========================================
+// ROTA: LISTAR TODAS AS ÁREAS
+// ==========================================
+app.get('/api/areas', async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('areas')
+      .select('*')
+      .order('nome', { ascending: true });
+
+    if (error) throw error;
+
+    return res.status(200).json(data);
+  } catch (err) {
+    console.error('Erro ao listar áreas:', err);
+    return res.status(500).json({ error: 'Erro ao carregar as áreas.' });
+  }
+});
+
+
+
 // ROTA: Cadastrar novo profissional com Foto Automática
 app.post("/api/profissionais", upload.single("foto"), async (req, res) => {
   try {
@@ -197,6 +289,8 @@ app.post("/api/profissionais", upload.single("foto"), async (req, res) => {
       status,
       telefone,
       whatsapp,
+      paisContacto,
+      paisWhat,
       email,
       localizacao,
       trabalho,
@@ -242,6 +336,8 @@ app.post("/api/profissionais", upload.single("foto"), async (req, res) => {
           status: status || "Disponível",
           telefone,
           whatsapp,
+          paisContacto,
+          paisWhat,
           email,
           localizacao,
           trabalho,
@@ -401,6 +497,8 @@ app.put("/api/profissionais/:id", upload.single("foto"), async (req, res) => {
       localizacao,
       trabalho,
       domicilio,
+      paisContacto,
+      paisWhat
     } = req.body;
 
     // 1. Busca os dados atuais do profissional para obter a URL da foto antiga
@@ -464,6 +562,8 @@ app.put("/api/profissionais/:id", upload.single("foto"), async (req, res) => {
         localizacao,
         trabalho,
         domicilio,
+        paisContacto,
+        paisWhat,
         foto: novaFotoUrl,
       })
       .eq("id", id)
