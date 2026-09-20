@@ -662,6 +662,32 @@ app.patch('/api/admin/profissionais/:id/status', async (req, res) => {
   }
 });
 
+// ==========================================
+// ROTA: MARCAR PROFISSIONAL COMO EXCLUÍDO (SOFT DELETE)
+// DELETE /api/admin/profissionais/:id
+// ==========================================
+app.delete('/api/admin/profissionais/:id', async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    const { data, error } = await supabase
+      .from('profissionais')
+      .update({ excluido: true }) // Marca como excluído sem apagar da base de dados
+      .eq('id', id)
+      .select();
+
+    if (error) throw error;
+
+    return res.status(200).json({ 
+      message: 'Profissional movido para a lixeira/excluído com sucesso!',
+      profissional: data[0]
+    });
+  } catch (err) {
+    console.error('Erro ao excluir profissional:', err);
+    return res.status(500).json({ error: 'Erro ao excluir profissional.' });
+  }
+});
+
 
 // Inicia o servidor na porta 5000
 app.listen(5000, () => {
