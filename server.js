@@ -13,7 +13,6 @@ const resend = new Resend(process.env.RESEND_API_KEY);
 // ------------------------------------------------------------------
 // HELPERS
 // ------------------------------------------------------------------
-// Extrai o caminho do ficheiro no Bucket a partir da URL completa
 function extrairCaminhoBucket(urlFoto, bucket = "profissionais") {
   if (!urlFoto) return null;
   try {
@@ -37,11 +36,10 @@ const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-// Multer — ficheiros em memória
 const upload = multer({ storage: multer.memoryStorage() });
 
 // ------------------------------------------------------------------
-// UPLOAD GENÉRICO PARA O SUPABASE STORAGE
+// UPLOAD GENÉRICO
 // ------------------------------------------------------------------
 async function uploadParaStorage(file, bucket, pasta = "") {
   const ext = file.originalname.split(".").pop();
@@ -72,17 +70,51 @@ async function uploadParaStorage(file, bucket, pasta = "") {
 // ROTAS PÚBLICAS
 // ==================================================================
 
-// 1. Listar profissionais (excluindo os que foram soft-deleted)
+// 1. Listar profissionais — COM MÉDIA CALCULADA ON-THE-FLY
 app.get("/api/profissionais", async (req, res) => {
   try {
-    const { data, error } = await supabase
+    // 1. Busca profissionais não excluídos
+    const { data: profissionais, error: errProf } = await supabase
       .from("profissionais")
       .select("*")
-      .or("excluido.is.null,excluido.eq.false"); // ✅ filtra soft-deleted
+      .or("excluido.is.null,excluido.eq.false");
 
-    if (error) throw error;
-    res.json(data);
+    if (errProf) throw errProf;
+
+    // 2. Busca avaliações APROVADAS
+    const { data: avaliacoesAprovadas, error: errAval } = await supabase
+      .from("avaliacoes")
+      .select("profissional, ponto")
+      .eq("status", "APROVADO");
+
+    if (errAval) throw errAval;
+
+    // 3. Agrupa por profissional
+    const statsPorProf = {};
+    (avaliacoesAprovadas || []).forEach(a => {
+      if (!statsPorProf[a.profissional]) {
+        statsPorProf[a.profissional] = { soma: 0, total: 0 };
+      }
+      statsPorProf[a.profissional].soma += Number(a.ponto) || 0;
+      statsPorProf[a.profissional].total += 1;
+    });
+
+    // 4. Enriquece com média + total
+    const resultado = profissionais.map(p => {
+      const stats = statsPorProf[p.id] || { soma: 0, total: 0 };
+      const media = stats.total > 0 ? stats.soma / stats.total : 0;
+
+      return {
+        ...p,
+        avaliacao: Number(media.toFixed(2)),   // média -1 a +4
+        total_avaliacoes: stats.total,
+        pontosTotais: stats.soma,
+      };
+    });
+
+    res.json(resultado);
   } catch (error) {
+    console.error("Erro ao listar profissionais:", error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -93,7 +125,7 @@ app.post("/api/avaliacoes", async (req, res) => {
     const { profissional, contacto, classificacao, ponto, comentario, nome, email } =
       req.body;
 
-    if (!profissional || !ponto || !classificacao || !comentario || !nome) {
+    if (!profissional || ponto === undefined || !classificacao || !comentario || !nome) {
       return res.status(400).json({
         error:
           "Por favor, preencha os campos obrigatórios: classificação, comentário, nome e contacto.",
@@ -139,7 +171,7 @@ app.get("/api/areas", async (req, res) => {
   }
 });
 
-// 4. Cadastro de profissional (com upload de foto)
+// 4. Cadastro de profissional
 app.post("/api/profissionais", upload.single("foto"), async (req, res) => {
   try {
     const {
@@ -175,7 +207,7 @@ app.post("/api/profissionais", upload.single("foto"), async (req, res) => {
           visualizacoes: 0,
           trabalhos_realizados: 0,
           avaliacao: 0.0,
-          condicao: "Pendente", // ✅ garante estado inicial
+          condicao: "Pendente",
           senha: senhaHash,
         },
       ])
@@ -268,7 +300,7 @@ app.post("/api/login/verificar", async (req, res) => {
   }
 });
 
-// 7. Atualizar perfil do profissional
+// 7. Atualizar perfil
 app.put("/api/profissionais/:id", upload.single("foto"), async (req, res) => {
   try {
     const { id } = req.params;
@@ -290,12 +322,10 @@ app.put("/api/profissionais/:id", upload.single("foto"), async (req, res) => {
     let novaFotoUrl = profissionalAtual.foto;
 
     if (req.file) {
-      // Apaga a foto antiga
       const caminhoAntigo = extrairCaminhoBucket(profissionalAtual.foto, "profissionais");
       if (caminhoAntigo) {
         await supabase.storage.from("profissionais").remove([caminhoAntigo]);
       }
-      // Upload da nova
       novaFotoUrl = await uploadParaStorage(req.file, "profissionais", "perfis");
     }
 
@@ -324,7 +354,7 @@ app.put("/api/profissionais/:id", upload.single("foto"), async (req, res) => {
   }
 });
 
-// 8. Esqueci a senha — envia email
+// 8. Esqueci a senha
 app.post("/api/esquecisenha", async (req, res) => {
   try {
     const email = String(req.body?.email || "").trim().toLowerCase();
@@ -364,7 +394,6 @@ app.post("/api/esquecisenha", async (req, res) => {
             <h1 style="color: #1e293b; margin: 0; font-size: 22px;">Trabalhador Livre</h1>
             <p style="color: #64748b; margin: 4px 0 0 0; font-size: 13px;">Conectando trabalhadores informais a oportunidades em Quelimane</p>
           </div>
-
           <div style="padding: 24px 0; color: #334155; line-height: 1.6;">
             <p style="font-size: 16px; margin-top: 0;">Olá, <strong>${profissional.nome}</strong>,</p>
             <p>Recebemos uma solicitação para redefinir a palavra-passe do teu perfil profissional na plataforma <strong>Trabalhador Livre - Quelimane</strong>.</p>
@@ -378,7 +407,6 @@ app.post("/api/esquecisenha", async (req, res) => {
               <strong>⚠️ Nota de Segurança:</strong> Este link é individual, de uso único e expira em <strong>30 minutos</strong>.
             </div>
           </div>
-
           <div style="border-top: 1px solid #f1f5f9; padding-top: 20px; text-align: center; color: #94a3b8; font-size: 12px; line-height: 1.5;">
             <p style="margin: 0; font-weight: bold; color: #64748b;">Trabalhador Livre - Quelimane</p>
             <p style="margin: 4px 0;">A tua plataforma de visibilidade para eletricistas, encanadores, pedreiros, técnicos de IT e outros profissionais independentes.</p>
@@ -453,7 +481,6 @@ app.get("/api/profissionais/:id/avaliacoes", async (req, res) => {
 
 // ---- PROFISSIONAIS ----
 
-// PATCH: Aprovar / Rejeitar condição
 app.patch("/api/admin/profissionais/:id/condicao", async (req, res) => {
   const { id } = req.params;
   const { condicao } = req.body;
@@ -481,7 +508,6 @@ app.patch("/api/admin/profissionais/:id/condicao", async (req, res) => {
   }
 });
 
-// PATCH: Verificado / Destaque / Bloqueado
 app.patch("/api/admin/profissionais/:id/status", async (req, res) => {
   const { id } = req.params;
   const { verificado, destaque, bloqueado } = req.body;
@@ -514,7 +540,6 @@ app.patch("/api/admin/profissionais/:id/status", async (req, res) => {
   }
 });
 
-// DELETE: Soft delete
 app.delete("/api/admin/profissionais/:id", async (req, res) => {
   const { id } = req.params;
 
@@ -539,10 +564,9 @@ app.delete("/api/admin/profissionais/:id", async (req, res) => {
 
 // ---- CATEGORIAS / ÁREAS ----
 
-// POST: Cadastrar nova categoria COM UPLOAD DE IMAGEM
 app.post(
   "/api/admin/categorias",
-  upload.single("foto"), // ✅ aceita ficheiro
+  upload.single("foto"),
   async (req, res) => {
     const { nome, oque_faz, quando_chamar } = req.body;
 
@@ -553,7 +577,6 @@ app.post(
     try {
       let fotoUrl = null;
 
-      // Se veio ficheiro, faz upload; senão aceita string (URL enviada manualmente)
       if (req.file) {
         fotoUrl = await uploadParaStorage(req.file, "profissionais", "areas");
       } else if (req.body.foto && typeof req.body.foto === "string") {
@@ -582,12 +605,10 @@ app.post(
   }
 );
 
-// DELETE: Eliminar categoria
 app.delete("/api/admin/categorias/:id", async (req, res) => {
   const { id } = req.params;
 
   try {
-    // Busca a categoria para apagar a foto do Storage também
     const { data: categoria } = await supabase
       .from("areas")
       .select("foto")
@@ -611,7 +632,6 @@ app.delete("/api/admin/categorias/:id", async (req, res) => {
   }
 });
 
-// GET: Listar categorias (público)
 app.get("/api/categorias", async (req, res) => {
   try {
     const { data, error } = await supabase
@@ -627,9 +647,9 @@ app.get("/api/categorias", async (req, res) => {
   }
 });
 
-// ---- AVALIAÇÕES (ADMIN) - ✅ NOVAS ROTAS ----
+// ---- AVALIAÇÕES ----
 
-// GET: Listar todas as avaliações com JOIN do profissional
+// GET: Listar todas as avaliações com JOIN
 app.get("/api/admin/avaliacoes", async (req, res) => {
   try {
     const { data, error } = await supabase
@@ -655,7 +675,8 @@ app.get("/api/admin/avaliacoes", async (req, res) => {
   }
 });
 
-// PATCH: Atualizar status da avaliação (APROVADO / REJEITADO)
+// PATCH: Atualizar status (aprovar/rejeitar)
+// ⚠️ NÃO recalcula a média — o GET /api/profissionais faz isso on-the-fly
 app.patch("/api/admin/avaliacoes/:id/status", async (req, res) => {
   const { id } = req.params;
   const { status } = req.body;
@@ -683,7 +704,7 @@ app.patch("/api/admin/avaliacoes/:id/status", async (req, res) => {
   }
 });
 
-// DELETE: Apagar avaliação definitivamente
+// DELETE: Apagar avaliação
 app.delete("/api/admin/avaliacoes/:id", async (req, res) => {
   const { id } = req.params;
 
