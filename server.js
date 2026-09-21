@@ -689,6 +689,81 @@ app.delete('/api/admin/profissionais/:id', async (req, res) => {
 });
 
 
+// 2. CADASTRAR NOVA CATEGORIA / ÁREA (Admin)
+app.post('/api/admin/categorias', async (req, res) => {
+  const { nome, foto, oque_faz, quando_chamar } = req.body;
+
+  // Validação do campo obrigatório
+  if (!nome || !nome.trim()) {
+    return res.status(400).json({ mensagem: "O nome da área é obrigatório." });
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from('areas')
+      .insert([
+        { 
+          nome: nome.trim(), 
+          foto: foto ? foto.trim() : null, 
+          oque_faz: oque_faz ? oque_faz.trim() : null, 
+          quando_chamar: quando_chamar ? quando_chamar.trim() : null 
+        }
+      ])
+      .select();
+
+    if (error) {
+      throw error;
+    }
+
+    return res.status(201).json(data[0]);
+  } catch (err) {
+    console.error("Erro ao cadastrar categoria:", err.message);
+    return res.status(500).json({ mensagem: "Erro interno ao guardar a categoria." });
+  }
+});
+
+// 3. ELIMINAR CATEGORIA / ÁREA (Admin)
+app.delete('/api/admin/categorias/:id', async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    const { error } = await supabase
+      .from('areas')
+      .delete()
+      .eq('id', id);
+
+    if (error) {
+      throw error;
+    }
+
+    return res.status(200).json({ mensagem: "Categoria eliminada com sucesso." });
+  } catch (err) {
+    console.error("Erro ao eliminar categoria:", err.message);
+    return res.status(500).json({ mensagem: "Erro ao eliminar a categoria." });
+  }
+});
+
+
+// 1. OBTER TODAS AS CATEGORIAS (Público - Menu Inicial / Filtros)
+app.get('/api/categorias', async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('categorias')
+      .select('*')
+      .order('nome', { ascending: true });
+
+    if (error) {
+      throw error;
+    }
+
+    return res.status(200).json(data);
+  } catch (err) {
+    console.error("Erro ao procurar categorias:", err.message);
+    return res.status(500).json({ mensagem: "Erro ao procurar categorias." });
+  }
+});
+
+
 // Inicia o servidor na porta 5000
 app.listen(5000, () => {
   console.log("Servidor rodando na porta 5000");
