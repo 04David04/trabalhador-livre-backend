@@ -1,80 +1,105 @@
-require("dotenv").config(); // Carrega as variáveis do .env
-
-
+require("dotenv").config();
 
 const bcrypt = require("bcrypt");
 const express = require("express");
 const cors = require("cors");
 const { createClient } = require("@supabase/supabase-js");
 const multer = require("multer");
-const nodemailer = require("nodemailer");
 const crypto = require("crypto");
 const { Resend } = require("resend");
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
-
-
+// ------------------------------------------------------------------
+// HELPERS
+// ------------------------------------------------------------------
 // Extrai o caminho do ficheiro no Bucket a partir da URL completa
-function extrairCaminhoBucket(urlFoto) {
+function extrairCaminhoBucket(urlFoto, bucket = "profissionais") {
   if (!urlFoto) return null;
   try {
-    const partes = urlFoto.split("/storage/v1/object/public/profissionais/");
+    const partes = urlFoto.split(`/storage/v1/object/public/${bucket}/`);
     return partes.length > 1 ? partes[1] : null;
   } catch (e) {
     return null;
   }
 }
+
 const app = express();
 
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// 1. Pega as variáveis de ambiente
+// ------------------------------------------------------------------
+// SUPABASE
+// ------------------------------------------------------------------
 const supabaseUrl = process.env.SUPABASE_URL;
-// Usamos a SERVICE_ROLE_KEY para ignorar as restrições de RLS no servidor
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-// 2. Cria o cliente Supabase com a Chave de Administrador (Service Role)
 const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-// Configuração do Multer para receber ficheiros na memória
+// Multer — ficheiros em memória
 const upload = multer({ storage: multer.memoryStorage() });
 
+// ------------------------------------------------------------------
+// UPLOAD GENÉRICO PARA O SUPABASE STORAGE
+// ------------------------------------------------------------------
+async function uploadParaStorage(file, bucket, pasta = "") {
+  const ext = file.originalname.split(".").pop();
+  const nomeLimpo = file.originalname
+    .replace(/\.[^/.]+$/, "")
+    .replace(/\s+/g, "-")
+    .replace(/[^a-zA-Z0-9-_]/g, "");
+  const fileName = `${Date.now()}-${nomeLimpo}.${ext}`;
+  const filePath = pasta ? `${pasta}/${fileName}` : fileName;
 
+  const { error: uploadError } = await supabase.storage
+    .from(bucket)
+    .upload(filePath, file.buffer, {
+      contentType: file.mimetype,
+      upsert: true,
+    });
 
-// 1. ROTA REAL: Buscar a lista de profissionais da base de dados
+  if (uploadError) throw uploadError;
+
+  const { data: publicUrlData } = supabase.storage
+    .from(bucket)
+    .getPublicUrl(filePath);
+
+  return publicUrlData.publicUrl;
+}
+
+// ==================================================================
+// ROTAS PÚBLICAS
+// ==================================================================
+
+// 1. Listar profissionais (excluindo os que foram soft-deleted)
 app.get("/api/profissionais", async (req, res) => {
   try {
-    // Consulta a tabela 'profissionais' do Supabase
-    const { data, error } = await supabase.from("profissionais").select("*");
+    const { data, error } = await supabase
+      .from("profissionais")
+      .select("*")
+      .or("excluido.is.null,excluido.eq.false"); // ✅ filtra soft-deleted
 
     if (error) throw error;
-
-    // Retorna os dados em formato JSON para o Front-end
     res.json(data);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
 
-// ROTA 2: Cliente envia uma avaliação sobre um profissional
+// 2. Cliente envia avaliação
 app.post("/api/avaliacoes", async (req, res) => {
   try {
-    // 1. Extraímos os dados que o cliente envia no formulário
     const { profissional, contacto, classificacao, ponto, comentario, nome, email } =
       req.body;
 
-    // 1.a Validação de campos obrigatórios
-    if (!profissional || !ponto || !classificacao || !comentario || !nome ) {
+    if (!profissional || !ponto || !classificacao || !comentario || !nome) {
       return res.status(400).json({
         error:
-          "Por favor, preencha os campos obrigatórios: classificaçã, comentário, nome e contacto.",
+          "Por favor, preencha os campos obrigatórios: classificação, comentário, nome e contacto.",
       });
     }
 
-    // 2. Inserimos a nova avaliação na tabela 'avaliacoes'
     const { data, error } = await supabase.from("avaliacoes").insert([
       {
         classificacao,
@@ -90,7 +115,6 @@ app.post("/api/avaliacoes", async (req, res) => {
 
     if (error) throw error;
 
-    // 3. Resposta de sucesso enviada de volta ao cliente
     res.status(201).json({
       message: "Avaliação enviada com sucesso! Aguarda aprovação do Admin.",
     });
@@ -99,72 +123,38 @@ app.post("/api/avaliacoes", async (req, res) => {
   }
 });
 
-// ==========================================
-// ROTA: LISTAR TODAS AS ÁREAS
-// ==========================================
-app.get('/api/areas', async (req, res) => {
+// 3. Listar áreas
+app.get("/api/areas", async (req, res) => {
   try {
     const { data, error } = await supabase
-      .from('areas')
-      .select('*')
-      .order('nome', { ascending: true });
+      .from("areas")
+      .select("*")
+      .order("nome", { ascending: true });
 
     if (error) throw error;
-
     return res.status(200).json(data);
   } catch (err) {
-    console.error('Erro ao listar áreas:', err);
-    return res.status(500).json({ error: 'Erro ao carregar as áreas.' });
+    console.error("Erro ao listar áreas:", err);
+    return res.status(500).json({ error: "Erro ao carregar as áreas." });
   }
 });
 
-// ROTA: Cadastrar novo profissional com Foto Automática
+// 4. Cadastro de profissional (com upload de foto)
 app.post("/api/profissionais", upload.single("foto"), async (req, res) => {
   try {
     const {
-      nome,
-      profissao,
-      status,
-      telefone,
-      whatsapp,
-      paisContacto,
-      paisWhat,
-      email,
-      localizacao,
-      trabalho,
-      domicilio,
-      senha,
+      nome, profissao, status, telefone, whatsapp, paisContacto, paisWhat,
+      email, localizacao, trabalho, domicilio, senha,
     } = req.body;
 
     let fotoUrl = null;
 
-    // Se o utilizador enviou uma foto no formulário
     if (req.file) {
-      const file = req.file;
-      const fileName = `${Date.now()}-${file.originalname.replace(/\s+/g, "-")}`;
-
-      // Upload para o Bucket 'profissionais' no Supabase Storage
-      const { data: storageData, error: storageError } = await supabase.storage
-        .from("profissionais")
-        .upload(fileName, file.buffer, {
-          contentType: file.mimetype,
-          upsert: true,
-        });
-
-      if (storageError) throw storageError;
-
-      // Pega a URL pública da imagem
-      const { data: publicUrlData } = supabase.storage
-        .from("profissionais")
-        .getPublicUrl(fileName);
-
-      fotoUrl = publicUrlData.publicUrl;
+      fotoUrl = await uploadParaStorage(req.file, "profissionais");
     }
 
-    const saltRounds = 10;
-    const senhaHash = await bcrypt.hash(senha, saltRounds);
+    const senhaHash = await bcrypt.hash(senha, 10);
 
-    // Inserir os dados no banco PostgreSQL / Supabase
     const { data, error } = await supabase
       .from("profissionais")
       .insert([
@@ -185,62 +175,55 @@ app.post("/api/profissionais", upload.single("foto"), async (req, res) => {
           visualizacoes: 0,
           trabalhos_realizados: 0,
           avaliacao: 0.0,
-          senha: senhaHash, // Armazena a senha criptografada
+          condicao: "Pendente", // ✅ garante estado inicial
+          senha: senhaHash,
         },
       ])
       .select();
 
     if (error) throw error;
 
-    res
-      .status(201)
-      .json({ message: "Profissional cadastrado com sucesso!", data });
+    res.status(201).json({ message: "Profissional cadastrado com sucesso!", data });
   } catch (error) {
     console.error("Erro no cadastro:", error);
-    // 🔴 GARANTIR QUE RETORNA O ERRO EM JSON PARA O REACT:
     res.status(500).json({
       error: error.message || "Erro interno ao cadastrar profissional.",
     });
   }
 });
 
-// ROTA DE LOGIN (Aceita Contacto ou E-mail)
+// 5. Login
 app.post("/api/login", async (req, res) => {
   try {
     const { login, senha } = req.body || {};
-    // 1. Validação simples
     if (!login || !senha) {
-      return res
-        .status(400)
-        .json({ error: "Por favor, preencha o contacto/e-mail e a senha." });
+      return res.status(400).json({ error: "Por favor, preencha o contacto/e-mail e a senha." });
     }
 
     const termo = login.trim();
 
-    // 2. Busca o profissional por telefone ou email de forma mais segura
-    const { data: profissionalPorTelefone, error: errorTelefone } =
-      await supabase
-        .from("profissionais")
-        .select("*")
-        .eq("telefone", termo)
-        .maybeSingle();
+    const { data: porTelefone } = await supabase
+      .from("profissionais")
+      .select("*")
+      .eq("telefone", termo)
+      .maybeSingle();
 
-    const { data: profissionalPorEmail, error: errorEmail } = await supabase
+    const { data: porEmail } = await supabase
       .from("profissionais")
       .select("*")
       .eq("email", termo)
       .maybeSingle();
 
-    const profissional = profissionalPorTelefone || profissionalPorEmail;
+    const profissional = porTelefone || porEmail;
 
-    if (errorTelefone || errorEmail || !profissional) {
-      return res.status(404).json({
-        error: "Contacto/e-mail incorreto.",
-        tipo: "1", // Tipo 1: Profissional não encontrado
-      });
+    if (!profissional) {
+      return res.status(404).json({ error: "Contacto/e-mail incorreto.", tipo: "1" });
     }
 
-    // 3. Verifica se a senha existe e compara corretamente
+    if (profissional.excluido) {
+      return res.status(403).json({ error: "Esta conta foi removida." });
+    }
+
     if (!profissional.senha) {
       return res.status(401).json({
         error: "Este profissional não tem senha válida no sistema.",
@@ -248,99 +231,52 @@ app.post("/api/login", async (req, res) => {
       });
     }
 
-    let senhaValida = false;
-    try {
-      senhaValida = await bcrypt.compare(senha, profissional.senha);
-    } catch (compareError) {
-      console.error("Erro ao comparar senha do login:", compareError);
-      return res
-        .status(500)
-        .json({ error: "Erro ao validar a senha. Contacte o suporte." });
-    }
-
+    const senhaValida = await bcrypt.compare(senha, profissional.senha);
     if (!senhaValida) {
       return res.status(401).json({ error: "Senha incorreta.", tipo: "2" });
     }
 
-    // 4. Remove a senha do objeto antes de enviar ao Front-end por segurança
     delete profissional.senha;
 
-    // 5. Retorna sucesso e os dados do profissional
-    res.status(200).json({
-      message: "Login efetuado com sucesso!",
-      profissional,
-    });
+    res.status(200).json({ message: "Login efetuado com sucesso!", profissional });
   } catch (error) {
     console.error("Erro no login:", error);
-    res.status(500).json({
-      error:
-        error.message || "Erro interno no servidor ao tentar realizar o login.",
-    });
+    res.status(500).json({ error: error.message || "Erro interno no servidor." });
   }
 });
 
-// ROTA DE LOGIN (Aceita Contacto ou E-mail)
+// 6. Verificar email
 app.post("/api/login/verificar", async (req, res) => {
   try {
     const { email } = req.body || {};
-    // 1. Validação simples
-    if (!email) {
-      return res.status(400).json({ error: "Por favor, preencha o e-mail." });
-    }
+    if (!email) return res.status(400).json({ error: "Por favor, preencha o e-mail." });
 
-    const termo = email.trim();
-
-    // 2. Busca o profissional por telefone ou email de forma mais segura
-
-    const { data: profissionalPorEmail, error: errorEmail } = await supabase
+    const { data: profissional, error } = await supabase
       .from("profissionais")
       .select("*")
-      .eq("email", termo)
+      .eq("email", email.trim())
       .maybeSingle();
 
-    const profissional = profissionalPorEmail;
-
-    if (errorEmail || !profissional) {
-      return res.status(404).json({
-        error: "Nenhuma conta encontrada.",
-        tipo: "0", // Tipo 1: Profissional não encontrado
-      });
+    if (error || !profissional) {
+      return res.status(404).json({ error: "Nenhuma conta encontrada.", tipo: "0" });
     }
-    // 4. Remove a senha do objeto antes de enviar ao Front-end por segurança
-    delete profissional.email;
 
-    // 5. Retorna sucesso e os dados do profissional
-    res.status(200).json({
-      message: "Conta encontrada!",
-    });
+    res.status(200).json({ message: "Conta encontrada!" });
   } catch (error) {
-    console.error("Erro no login:", error);
-    res.status(500).json({
-      error:
-        error.message || "Erro interno no servidor ao tentar realizar o login.",
-    });
+    console.error("Erro no login/verificar:", error);
+    res.status(500).json({ error: error.message || "Erro interno no servidor." });
   }
 });
 
-// ROTA: Atualizar perfil do profissional
+// 7. Atualizar perfil do profissional
 app.put("/api/profissionais/:id", upload.single("foto"), async (req, res) => {
   try {
     const { id } = req.params;
     const {
-      nome,
-      status,
-      telefone,
-      whatsapp,
-      email,
-      profissao,
-      localizacao,
-      trabalho,
-      domicilio,
-      paisContacto,
-      paisWhat
+      nome, status, telefone, whatsapp, email, profissao,
+      localizacao, trabalho, domicilio, paisContacto, paisWhat,
     } = req.body;
 
-    // 1. Busca os dados atuais do profissional para obter a URL da foto antiga
     const { data: profissionalAtual, error: erroBusca } = await supabase
       .from("profissionais")
       .select("foto")
@@ -351,58 +287,23 @@ app.put("/api/profissionais/:id", upload.single("foto"), async (req, res) => {
       return res.status(404).json({ error: "Profissional não encontrado." });
     }
 
-    let novaFotoUrl = profissionalAtual.foto; // Mantém a foto atual por padrão
+    let novaFotoUrl = profissionalAtual.foto;
 
-    // 2. Se uma nova foto foi enviada via Multer
     if (req.file) {
-      // A) Apaga a foto antiga do Storage (se existir)
-      const caminhoFotoAntiga = extrairCaminhoBucket(profissionalAtual.foto);
-      if (caminhoFotoAntiga) {
-        await supabase.storage
-          .from("profissionais")
-          .remove([caminhoFotoAntiga]);
+      // Apaga a foto antiga
+      const caminhoAntigo = extrairCaminhoBucket(profissionalAtual.foto, "profissionais");
+      if (caminhoAntigo) {
+        await supabase.storage.from("profissionais").remove([caminhoAntigo]);
       }
-
-      // B) Faz o upload da nova foto
-      const fileExt = req.file.originalname.split(".").pop();
-      const fileName = `${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExt}`;
-      const filePath = `perfis/${fileName}`;
-
-      const { error: uploadError } = await supabase.storage
-        .from("profissionais")
-        .upload(filePath, req.file.buffer, {
-          contentType: req.file.mimetype,
-          upsert: true,
-        });
-
-      if (uploadError) {
-        console.error("Erro no upload da nova foto:", uploadError);
-        return res.status(500).json({ error: "Falha ao guardar a nova foto." });
-      }
-
-      // C) Gera a URL pública da nova imagem
-      const { data: urlData } = supabase.storage
-        .from("profissionais")
-        .getPublicUrl(filePath);
-
-      novaFotoUrl = urlData.publicUrl;
+      // Upload da nova
+      novaFotoUrl = await uploadParaStorage(req.file, "profissionais", "perfis");
     }
 
-    // 3. Atualiza os dados na tabela 'profissionais'
     const { data: profissionalAtualizado, error: updateError } = await supabase
       .from("profissionais")
       .update({
-        nome,
-        status,
-        telefone,
-        whatsapp,
-        email,
-        profissao,
-        localizacao,
-        trabalho,
-        domicilio,
-        paisContacto,
-        paisWhat,
+        nome, status, telefone, whatsapp, email, profissao,
+        localizacao, trabalho, domicilio, paisContacto, paisWhat,
         foto: novaFotoUrl,
       })
       .eq("id", id)
@@ -410,12 +311,9 @@ app.put("/api/profissionais/:id", upload.single("foto"), async (req, res) => {
 
     if (updateError) {
       console.error("Erro ao atualizar banco:", updateError);
-      return res
-        .status(500)
-        .json({ error: "Erro ao guardar as alterações no perfil." });
+      return res.status(500).json({ error: "Erro ao guardar as alterações no perfil." });
     }
 
-    // 4. Retorna os dados atualizados ao Front-end
     return res.status(200).json({
       message: "Perfil atualizado com sucesso!",
       profissional: profissionalAtualizado[0],
@@ -426,115 +324,84 @@ app.put("/api/profissionais/:id", upload.single("foto"), async (req, res) => {
   }
 });
 
-// ----------------------------------------------------
-// ROTA 1: Gerar Token e Enviar E-mail de Recuperação
-// ----------------------------------------------------
+// 8. Esqueci a senha — envia email
 app.post("/api/esquecisenha", async (req, res) => {
-      try {
-        const email = String(req.body?.email || "")
-          .trim()
-          .toLowerCase();
+  try {
+    const email = String(req.body?.email || "").trim().toLowerCase();
+    if (!email) return res.status(400).json({ error: "E-mail obrigatório." });
 
-        if (!email) {
-          return res.status(400).json({ error: "E-mail obrigatório." });
-        }
+    const { data: profissional, error } = await supabase
+      .from("profissionais")
+      .select("*")
+      .eq("email", email)
+      .maybeSingle();
 
-        const { data: profissional, error } = await supabase
-          .from("profissionais")
-          .select("*")
-          .eq("email", email)
-          .maybeSingle();
+    if (error || !profissional) {
+      return res.status(404).json({ error: "E-mail não encontrado." });
+    }
 
-        if (error || !profissional) {
-          return res.status(404).json({ error: "E-mail não encontrado." });
-        }
+    const resetToken = crypto.randomBytes(32).toString("hex");
+    const tokenExpira = new Date(Date.now() + 30 * 60 * 1000).toISOString();
 
-        const resetToken = crypto.randomBytes(32).toString("hex");
-        const tokenExpira = new Date(Date.now() + 30 * 60 * 1000).toISOString();
+    const { error: updateError } = await supabase
+      .from("profissionais")
+      .update({ reset_token: resetToken, reset_expira: tokenExpira })
+      .eq("id", profissional.id);
 
-        const { error: updateError } = await supabase
-          .from("profissionais")
-          .update({ reset_token: resetToken, reset_expira: tokenExpira })
-          .eq("id", profissional.id);
+    if (updateError) throw updateError;
 
-        if (updateError) {
-          throw updateError;
-        }
+    const frontendUrl = process.env.FRONTEND_URL;
+    const linkRedefinicao = `${frontendUrl}/?token=${resetToken}&Page=1`;
 
-        const frontendUrl = process.env.FRONTEND_URL;
-        const linkRedefinicao = `${frontendUrl}/?token=${resetToken}&Page=1`;
+    const { error: emailError } = await resend.emails.send({
+      from: "noreply@resend.dev",
+      to: email,
+      subject: "Recuperação de Conta - Redefinir Senha",
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px; background-color: #ffffff;">
+          <div style="text-align: center; padding-bottom: 20px; border-bottom: 2px solid #f1f5f9;">
+            <img src="https://trabalhadorlivre.vercel.app/og-image.png" alt="Trabalhador Livre" style="max-width: 180px; height: auto; margin-bottom: 10px;" />
+            <h1 style="color: #1e293b; margin: 0; font-size: 22px;">Trabalhador Livre</h1>
+            <p style="color: #64748b; margin: 4px 0 0 0; font-size: 13px;">Conectando trabalhadores informais a oportunidades em Quelimane</p>
+          </div>
 
-        // Usa Resend em vez de nodemailer
-        const { data, error: emailError } = await resend.emails.send({
-          from: "noreply@resend.dev", // ou seu domínio customizado
-          to: email,
-          subject: "Recuperação de Conta - Redefinir Senha",
-          html: `
-            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px; background-color: #ffffff;">
-              
-              <!-- Cabeçalho com a Marca Oficial -->
-              <div style="text-align: center; padding-bottom: 20px; border-bottom: 2px solid #f1f5f9;">
-                <img src="https://trabalhadorlivre.vercel.app/og-image.png" alt="Trabalhador Livre" style="max-width: 180px; height: auto; margin-bottom: 10px;" />
-                <h1 style="color: #1e293b; margin: 0; font-size: 22px;">Trabalhador Livre</h1>
-                <p style="color: #64748b; margin: 4px 0 0 0; font-size: 13px;">Conectando trabalhadores informais a oportunidades em Quelimane</p>
-              </div>
-
-              <!-- Corpo da Mensagem -->
-              <div style="padding: 24px 0; color: #334155; line-height: 1.6;">
-                <p style="font-size: 16px; margin-top: 0;">Olá, <strong>${profissional.nome}</strong>,</p>
-                
-                <p>Recebemos uma solicitação para redefinir a palavra-passe do teu perfil profissional na plataforma <strong>Trabalhador Livre - Quelimane</strong>.</p>
-                
-                <p>Para criares uma nova credencial e continuares a receber pedidos de clientes em Quelimane para os teus serviços, clica no botão abaixo:</p>
-                
-                <!-- Botão de Ação -->
-                <div style="text-align: center; margin: 30px 0;">
-                  <a href="${linkRedefinicao}" style="background-color: #2563eb; color: #ffffff; padding: 12px 26px; text-decoration: none; font-weight: bold; border-radius: 6px; display: inline-block; font-size: 15px;">
-                    Redefinir Minha Senha
-                  </a>
-                </div>
-                
-                <!-- Caixa de Segurança -->
-                <div style="font-size: 13px; color: #475569; background-color: #f8fafc; padding: 14px; border-left: 4px solid #2563eb; border-radius: 4px;">
-                  <strong>⚠️ Nota de Segurança:</strong> Este link é individual, de uso único e expira em <strong>30 minutos</strong>. Se não solicitaste esta alteração, podes ignorar este e-mail — a tua conta continuará protegida e a tua senha atual não será alterada.
-                </div>
-              </div>
-
-              <!-- Rodapé Institucional -->
-              <div style="border-top: 1px solid #f1f5f9; padding-top: 20px; text-align: center; color: #94a3b8; font-size: 12px; line-height: 1.5;">
-                <p style="margin: 0; font-weight: bold; color: #64748b;">Trabalhador Livre - Quelimane</p>
-                <p style="margin: 4px 0;">A tua plataforma de visibilidade para eletricistas, encanadores, pedreiros, técnicos de IT e outros profissionais independentes.</p>
-                <p style="margin: 8px 0 0 0;"><a href="https://trabalhadorlivre.vercel.app" style="color: #2563eb; text-decoration: none;">trabalhadorlivre.vercel.app</a></p>
-              </div>
-
+          <div style="padding: 24px 0; color: #334155; line-height: 1.6;">
+            <p style="font-size: 16px; margin-top: 0;">Olá, <strong>${profissional.nome}</strong>,</p>
+            <p>Recebemos uma solicitação para redefinir a palavra-passe do teu perfil profissional na plataforma <strong>Trabalhador Livre - Quelimane</strong>.</p>
+            <p>Para criares uma nova credencial, clica no botão abaixo:</p>
+            <div style="text-align: center; margin: 30px 0;">
+              <a href="${linkRedefinicao}" style="background-color: #2563eb; color: #ffffff; padding: 12px 26px; text-decoration: none; font-weight: bold; border-radius: 6px; display: inline-block; font-size: 15px;">
+                Redefinir Minha Senha
+              </a>
             </div>
-          `,
-        });
+            <div style="font-size: 13px; color: #475569; background-color: #f8fafc; padding: 14px; border-left: 4px solid #2563eb; border-radius: 4px;">
+              <strong>⚠️ Nota de Segurança:</strong> Este link é individual, de uso único e expira em <strong>30 minutos</strong>.
+            </div>
+          </div>
 
-        if (emailError) {
-          throw emailError;
-        }
+          <div style="border-top: 1px solid #f1f5f9; padding-top: 20px; text-align: center; color: #94a3b8; font-size: 12px; line-height: 1.5;">
+            <p style="margin: 0; font-weight: bold; color: #64748b;">Trabalhador Livre - Quelimane</p>
+            <p style="margin: 4px 0;">A tua plataforma de visibilidade para eletricistas, encanadores, pedreiros, técnicos de IT e outros profissionais independentes.</p>
+            <p style="margin: 8px 0 0 0;"><a href="https://trabalhadorlivre.vercel.app" style="color: #2563eb; text-decoration: none;">trabalhadorlivre.vercel.app</a></p>
+          </div>
+        </div>
+      `,
+    });
 
-        return res
-          .status(200)
-          .json({ message: "E-mail de recuperação enviado com sucesso!" });
-      } catch (err) {
-        console.error("ERRO DETALHADO NO BACKEND:", err);
-        return res
-          .status(500)
-          .json({ error: "Erro ao processar pedido de recuperação." });
-      }
- 
+    if (emailError) throw emailError;
+
+    return res.status(200).json({ message: "E-mail de recuperação enviado com sucesso!" });
+  } catch (err) {
+    console.error("ERRO DETALHADO NO BACKEND:", err);
+    return res.status(500).json({ error: "Erro ao processar pedido de recuperação." });
+  }
 });
 
-// ----------------------------------------------------
-// ROTA 2: Atualizar para a Nova Senha
-// ----------------------------------------------------
+// 9. Redefinir senha
 app.post("/api/redefinir-senha", async (req, res) => {
   const { token, novaSenha } = req.body;
 
   try {
-    // 1. Procura o profissional que possui este token
     const { data: profissional, error } = await supabase
       .from("profissionais")
       .select("*")
@@ -545,196 +412,197 @@ app.post("/api/redefinir-senha", async (req, res) => {
       return res.status(400).json({ error: "Token inválido ou expirado." });
     }
 
-    // 2. Verifica se o token já expirou
     if (new Date() > new Date(profissional.reset_expira)) {
-      return res
-        .status(400)
-        .json({ error: "O link de recuperação expirou. Pede um novo link." });
+      return res.status(400).json({ error: "O link de recuperação expirou. Pede um novo link." });
     }
 
-    // 3. Criptografa a nova senha
     const senhaHash = await bcrypt.hash(novaSenha, 10);
 
-    // 4. Atualiza a senha no banco e limpa o token usado
     await supabase
       .from("profissionais")
-      .update({
-        senha: senhaHash,
-        reset_token: null,
-        reset_expira: null,
-      })
+      .update({ senha: senhaHash, reset_token: null, reset_expira: null })
       .eq("id", profissional.id);
 
-    return res
-      .status(200)
-      .json({ message: "Senha redefinida com sucesso! Já podes fazer login." });
+    return res.status(200).json({ message: "Senha redefinida com sucesso! Já podes fazer login." });
   } catch (err) {
     return res.status(500).json({ error: "Erro ao redefinir palavra-passe." });
   }
 });
 
-// Buscar histórico de avaliações do profissional logado
-app.get('/api/profissionais/:id/avaliacoes', async (req, res) => {
+// 10. Histórico de avaliações do profissional logado
+app.get("/api/profissionais/:id/avaliacoes", async (req, res) => {
   const { id } = req.params;
-
   try {
     const { data, error } = await supabase
-      .from('avaliacoes')
-      .select('*')
-      .eq('profissional', id)
-      .order('created_at', { ascending: false });
+      .from("avaliacoes")
+      .select("*")
+      .eq("profissional", id)
+      .order("created_at", { ascending: false });
 
     if (error) throw error;
-
     res.status(200).json(data || []);
   } catch (erro) {
-    console.error('Erro ao buscar avaliações:', erro.message);
-    res.status(500).json({ error: 'Erro ao carregar histórico de avaliações.' });
+    console.error("Erro ao buscar avaliações:", erro.message);
+    res.status(500).json({ error: "Erro ao carregar histórico de avaliações." });
   }
 });
 
+// ==================================================================
+// ROTAS DE ADMINISTRAÇÃO
+// ==================================================================
 
-/* =========================================================
-   ROTAS DE ADMINISTRAÇÃO (MODERAÇÃO)
-   ========================================================= */
+// ---- PROFISSIONAIS ----
 
-   // ==========================================
-// ROTA: ALTERAR STATUS DE APROVAÇÃO DO PROFISSIONAL
-// PATCH /api/admin/profissionais/:id/condicao
-// ==========================================
-app.patch('/api/admin/profissionais/:id/condicao', async (req, res) => {
+// PATCH: Aprovar / Rejeitar condição
+app.patch("/api/admin/profissionais/:id/condicao", async (req, res) => {
   const { id } = req.params;
-  const { condicao } = req.body; // Espera: 'Aprovado' ou 'Rejeitado'
+  const { condicao } = req.body;
 
-  if (!['Aprovado', 'Rejeitado'].includes(condicao)) {
-    return res.status(400).json({ error: 'Condição inválida.' });
+  if (!["Aprovado", "Rejeitado", "Pendente"].includes(condicao)) {
+    return res.status(400).json({ error: "Condição inválida." });
   }
 
   try {
     const { data, error } = await supabase
-      .from('profissionais')
+      .from("profissionais")
       .update({ condicao })
-      .eq('id', id)
+      .eq("id", id)
       .select();
 
     if (error) throw error;
 
     return res.status(200).json({
       message: `Profissional ${condicao.toLowerCase()} com sucesso!`,
-      profissional: data[0]
+      profissional: data[0],
     });
   } catch (err) {
-    console.error('Erro ao atualizar condição do profissional:', err);
-    return res.status(500).json({ error: 'Erro ao atualizar estado do profissional.' });
+    console.error("Erro ao atualizar condição:", err);
+    return res.status(500).json({ error: "Erro ao atualizar estado do profissional." });
   }
 });
 
-// ==========================================
-// ROTA: ATUALIZAR STATUS DE VERIFICADO, DESTAQUE E BLOQUEIO (INDEPENDENTES)
-// PATCH /api/admin/profissionais/:id/status
-// ==========================================
-app.patch('/api/admin/profissionais/:id/status', async (req, res) => {
+// PATCH: Verificado / Destaque / Bloqueado
+app.patch("/api/admin/profissionais/:id/status", async (req, res) => {
   const { id } = req.params;
   const { verificado, destaque, bloqueado } = req.body;
 
-  const camposAtualizar = {};
+  const campos = {};
+  if (typeof verificado !== "undefined") campos.verificado = verificado;
+  if (typeof destaque !== "undefined") campos.destaque = destaque;
+  if (typeof bloqueado !== "undefined") campos.bloqueado = bloqueado;
 
-  if (typeof verificado !== 'undefined') camposAtualizar.verificado = verificado;
-  if (typeof destaque !== 'undefined') camposAtualizar.destaque = destaque;
-  if (typeof bloqueado !== 'undefined') camposAtualizar.bloqueado = bloqueado;
+  if (Object.keys(campos).length === 0) {
+    return res.status(400).json({ error: "Nenhum campo válido enviado." });
+  }
 
   try {
     const { data, error } = await supabase
-      .from('profissionais')
-      .update(camposAtualizar)
-      .eq('id', id)
+      .from("profissionais")
+      .update(campos)
+      .eq("id", id)
       .select();
 
     if (error) throw error;
 
     return res.status(200).json({
-      message: 'Status do profissional atualizado com sucesso!',
-      profissional: data[0]
+      message: "Status atualizado com sucesso!",
+      profissional: data[0],
     });
   } catch (err) {
-    console.error('Erro ao atualizar status do profissional:', err);
-    return res.status(500).json({ error: 'Erro ao atualizar status do profissional.' });
+    console.error("Erro ao atualizar status:", err);
+    return res.status(500).json({ error: "Erro ao atualizar status do profissional." });
   }
 });
 
-// ==========================================
-// ROTA: MARCAR PROFISSIONAL COMO EXCLUÍDO (SOFT DELETE)
-// DELETE /api/admin/profissionais/:id
-// ==========================================
-app.delete('/api/admin/profissionais/:id', async (req, res) => {
+// DELETE: Soft delete
+app.delete("/api/admin/profissionais/:id", async (req, res) => {
   const { id } = req.params;
 
   try {
     const { data, error } = await supabase
-      .from('profissionais')
-      .update({ excluido: true }) // Marca como excluído sem apagar da base de dados
-      .eq('id', id)
+      .from("profissionais")
+      .update({ excluido: true })
+      .eq("id", id)
       .select();
 
     if (error) throw error;
 
-    return res.status(200).json({ 
-      message: 'Profissional movido para a lixeira/excluído com sucesso!',
-      profissional: data[0]
+    return res.status(200).json({
+      message: "Profissional movido para a lixeira com sucesso!",
+      profissional: data[0],
     });
   } catch (err) {
-    console.error('Erro ao excluir profissional:', err);
-    return res.status(500).json({ error: 'Erro ao excluir profissional.' });
+    console.error("Erro ao excluir profissional:", err);
+    return res.status(500).json({ error: "Erro ao excluir profissional." });
   }
 });
 
+// ---- CATEGORIAS / ÁREAS ----
 
-// 2. CADASTRAR NOVA CATEGORIA / ÁREA (Admin)
-app.post('/api/admin/categorias', async (req, res) => {
-  const { nome, foto, oque_faz, quando_chamar } = req.body;
+// POST: Cadastrar nova categoria COM UPLOAD DE IMAGEM
+app.post(
+  "/api/admin/categorias",
+  upload.single("foto"), // ✅ aceita ficheiro
+  async (req, res) => {
+    const { nome, oque_faz, quando_chamar } = req.body;
 
-  // Validação do campo obrigatório
-  if (!nome || !nome.trim()) {
-    return res.status(400).json({ mensagem: "O nome da área é obrigatório." });
-  }
-
-  try {
-    const { data, error } = await supabase
-      .from('areas')
-      .insert([
-        { 
-          nome: nome.trim(), 
-          foto: foto ? foto.trim() : null, 
-          oque_faz: oque_faz ? oque_faz.trim() : null, 
-          quando_chamar: quando_chamar ? quando_chamar.trim() : null 
-        }
-      ])
-      .select();
-
-    if (error) {
-      throw error;
+    if (!nome || !nome.trim()) {
+      return res.status(400).json({ mensagem: "O nome da área é obrigatório." });
     }
 
-    return res.status(201).json(data[0]);
-  } catch (err) {
-    console.error("Erro ao cadastrar categoria:", err.message);
-    return res.status(500).json({ mensagem: "Erro interno ao guardar a categoria." });
-  }
-});
+    try {
+      let fotoUrl = null;
 
-// 3. ELIMINAR CATEGORIA / ÁREA (Admin)
-app.delete('/api/admin/categorias/:id', async (req, res) => {
+      // Se veio ficheiro, faz upload; senão aceita string (URL enviada manualmente)
+      if (req.file) {
+        fotoUrl = await uploadParaStorage(req.file, "profissionais", "areas");
+      } else if (req.body.foto && typeof req.body.foto === "string") {
+        fotoUrl = req.body.foto.trim();
+      }
+
+      const { data, error } = await supabase
+        .from("areas")
+        .insert([
+          {
+            nome: nome.trim(),
+            foto: fotoUrl,
+            oque_faz: oque_faz ? oque_faz.trim() : null,
+            quando_chamar: quando_chamar ? quando_chamar.trim() : null,
+          },
+        ])
+        .select();
+
+      if (error) throw error;
+
+      return res.status(201).json(data[0]);
+    } catch (err) {
+      console.error("Erro ao cadastrar categoria:", err.message);
+      return res.status(500).json({ mensagem: "Erro interno ao guardar a categoria." });
+    }
+  }
+);
+
+// DELETE: Eliminar categoria
+app.delete("/api/admin/categorias/:id", async (req, res) => {
   const { id } = req.params;
 
   try {
-    const { error } = await supabase
-      .from('areas')
-      .delete()
-      .eq('id', id);
+    // Busca a categoria para apagar a foto do Storage também
+    const { data: categoria } = await supabase
+      .from("areas")
+      .select("foto")
+      .eq("id", id)
+      .maybeSingle();
 
-    if (error) {
-      throw error;
+    if (categoria?.foto) {
+      const caminho = extrairCaminhoBucket(categoria.foto, "profissionais");
+      if (caminho) {
+        await supabase.storage.from("profissionais").remove([caminho]);
+      }
     }
+
+    const { error } = await supabase.from("areas").delete().eq("id", id);
+    if (error) throw error;
 
     return res.status(200).json({ mensagem: "Categoria eliminada com sucesso." });
   } catch (err) {
@@ -743,19 +611,15 @@ app.delete('/api/admin/categorias/:id', async (req, res) => {
   }
 });
 
-
-// 1. OBTER TODAS AS CATEGORIAS (Público - Menu Inicial / Filtros)
-app.get('/api/categorias', async (req, res) => {
+// GET: Listar categorias (público)
+app.get("/api/categorias", async (req, res) => {
   try {
     const { data, error } = await supabase
-      .from('categorias')
-      .select('*')
-      .order('nome', { ascending: true });
+      .from("categorias")
+      .select("*")
+      .order("nome", { ascending: true });
 
-    if (error) {
-      throw error;
-    }
-
+    if (error) throw error;
     return res.status(200).json(data);
   } catch (err) {
     console.error("Erro ao procurar categorias:", err.message);
@@ -763,8 +627,80 @@ app.get('/api/categorias', async (req, res) => {
   }
 });
 
+// ---- AVALIAÇÕES (ADMIN) - ✅ NOVAS ROTAS ----
 
-// Inicia o servidor na porta 5000
+// GET: Listar todas as avaliações com JOIN do profissional
+app.get("/api/admin/avaliacoes", async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from("avaliacoes")
+      .select(`
+        *,
+        profissionais:profissional (
+          id,
+          nome,
+          profissao,
+          foto,
+          localizacao
+        )
+      `)
+      .order("created_at", { ascending: false });
+
+    if (error) throw error;
+
+    return res.status(200).json(data || []);
+  } catch (err) {
+    console.error("Erro ao listar avaliações:", err.message);
+    return res.status(500).json({ error: "Erro ao carregar avaliações." });
+  }
+});
+
+// PATCH: Atualizar status da avaliação (APROVADO / REJEITADO)
+app.patch("/api/admin/avaliacoes/:id/status", async (req, res) => {
+  const { id } = req.params;
+  const { status } = req.body;
+
+  if (!["APROVADO", "REJEITADO", "PENDENTE"].includes(status)) {
+    return res.status(400).json({ error: "Status inválido." });
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from("avaliacoes")
+      .update({ status })
+      .eq("id", id)
+      .select();
+
+    if (error) throw error;
+
+    return res.status(200).json({
+      message: `Avaliação ${status.toLowerCase()} com sucesso!`,
+      avaliacao: data[0],
+    });
+  } catch (err) {
+    console.error("Erro ao atualizar status da avaliação:", err.message);
+    return res.status(500).json({ error: "Erro ao atualizar avaliação." });
+  }
+});
+
+// DELETE: Apagar avaliação definitivamente
+app.delete("/api/admin/avaliacoes/:id", async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    const { error } = await supabase.from("avaliacoes").delete().eq("id", id);
+    if (error) throw error;
+
+    return res.status(200).json({ mensagem: "Avaliação apagada com sucesso." });
+  } catch (err) {
+    console.error("Erro ao apagar avaliação:", err.message);
+    return res.status(500).json({ error: "Erro ao apagar avaliação." });
+  }
+});
+
+// ==================================================================
+// LISTEN
+// ==================================================================
 app.listen(5000, () => {
   console.log("Servidor rodando na porta 5000");
 });
