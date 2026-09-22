@@ -70,18 +70,23 @@ async function uploadParaStorage(file, bucket, pasta = "") {
 // ROTAS PÚBLICAS
 // ==================================================================
 
-// 1. Listar profissionais — COM MÉDIA CALCULADA ON-THE-FLY
+// 1. Listar profissionais PÚBLICOS (Apenas Aprovados, Não Bloqueados e Não Excluídos)
 app.get("/api/profissionais", async (req, res) => {
   try {
-    // 1. Busca profissionais não excluídos
+    // Busca apenas profissionais aptos para exibição pública com ordenação por destaque
     const { data: profissionais, error: errProf } = await supabase
       .from("profissionais")
       .select("*")
-      .or("excluido.is.null,excluido.eq.false");
+      .eq("condicao", "Aprovado")
+      .eq("bloqueado", false)
+      .or("excluido.is.null,excluido.eq.false")
+      .order("destaque", { ascending: false })
+      .order("status", { ascending: true })
+      .order("created_at", { ascending: false });
 
     if (errProf) throw errProf;
 
-    // 2. Busca avaliações APROVADAS
+    // Busca avaliações APROVADAS
     const { data: avaliacoesAprovadas, error: errAval } = await supabase
       .from("avaliacoes")
       .select("profissional, ponto")
@@ -89,9 +94,9 @@ app.get("/api/profissionais", async (req, res) => {
 
     if (errAval) throw errAval;
 
-    // 3. Agrupa por profissional
+    // Agrupa avaliações por profissional
     const statsPorProf = {};
-    (avaliacoesAprovadas || []).forEach(a => {
+    (avaliacoesAprovadas || []).forEach((a) => {
       if (!statsPorProf[a.profissional]) {
         statsPorProf[a.profissional] = { soma: 0, total: 0 };
       }
@@ -99,14 +104,14 @@ app.get("/api/profissionais", async (req, res) => {
       statsPorProf[a.profissional].total += 1;
     });
 
-    // 4. Enriquece com média + total
-    const resultado = profissionais.map(p => {
+    // Enriquece com média + total de avaliações
+    const resultado = profissionais.map((p) => {
       const stats = statsPorProf[p.id] || { soma: 0, total: 0 };
       const media = stats.total > 0 ? stats.soma / stats.total : 0;
 
       return {
         ...p,
-        avaliacao: Number(media.toFixed(2)),   // média -1 a +4
+        avaliacao: Number(media.toFixed(2)),
         total_avaliacoes: stats.total,
         pontosTotais: stats.soma,
       };
@@ -114,7 +119,7 @@ app.get("/api/profissionais", async (req, res) => {
 
     res.json(resultado);
   } catch (error) {
-    console.error("Erro ao listar profissionais:", error);
+    console.error("Erro ao listar profissionais públicos:", error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -187,6 +192,10 @@ app.post("/api/profissionais", upload.single("foto"), async (req, res) => {
 
     const senhaHash = await bcrypt.hash(senha, 10);
 
+    // Tratamento para garantir que paisContacto e paisWhat fiquem +258
+    const paisContactoFinal = paisContacto && paisContacto !== "undefined" ? paisContacto : "+258";
+    const paisWhatFinal = paisWhat && paisWhat !== "undefined" ? paisWhat : "+258";
+
     const { data, error } = await supabase
       .from("profissionais")
       .insert([
@@ -196,8 +205,8 @@ app.post("/api/profissionais", upload.single("foto"), async (req, res) => {
           status: status || "Disponível",
           telefone,
           whatsapp,
-          paisContacto,
-          paisWhat,
+          paisContacto: paisContactoFinal,
+          paisWhat: paisWhatFinal,
           email,
           localizacao,
           trabalho,
@@ -329,11 +338,16 @@ app.put("/api/profissionais/:id", upload.single("foto"), async (req, res) => {
       novaFotoUrl = await uploadParaStorage(req.file, "profissionais", "perfis");
     }
 
+    const paisContactoFinal = paisContacto && paisContacto !== "undefined" ? paisContacto : "+258";
+    const paisWhatFinal = paisWhat && paisWhat !== "undefined" ? paisWhat : "+258";
+
     const { data: profissionalAtualizado, error: updateError } = await supabase
       .from("profissionais")
       .update({
         nome, status, telefone, whatsapp, email, profissao,
-        localizacao, trabalho, domicilio, paisContacto, paisWhat,
+        localizacao, trabalho, domicilio,
+        paisContacto: paisContactoFinal,
+        paisWhat: paisWhatFinal,
         foto: novaFotoUrl,
       })
       .eq("id", id)
@@ -480,6 +494,23 @@ app.get("/api/profissionais/:id/avaliacoes", async (req, res) => {
 // ==================================================================
 
 // ---- PROFISSIONAIS ----
+
+// Listar TODOS os profissionais para a tabela de Admin (Apenas ignora excluídos)
+app.get("/api/admin/profissionais", async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from("profissionais")
+      .select("*")
+      .or("excluido.is.null,excluido.eq.false")
+      .order("created_at", { ascending: false });
+
+    if (error) throw error;
+    return res.status(200).json(data || []);
+  } catch (err) {
+    console.error("Erro ao listar todos os profissionais para o Admin:", err.message);
+    return res.status(500).json({ error: "Erro ao carregar a lista do painel administrativo." });
+  }
+});
 
 app.patch("/api/admin/profissionais/:id/condicao", async (req, res) => {
   const { id } = req.params;
@@ -649,7 +680,6 @@ app.get("/api/categorias", async (req, res) => {
 
 // ---- AVALIAÇÕES ----
 
-// GET: Listar todas as avaliações com JOIN
 app.get("/api/admin/avaliacoes", async (req, res) => {
   try {
     const { data, error } = await supabase
@@ -675,8 +705,6 @@ app.get("/api/admin/avaliacoes", async (req, res) => {
   }
 });
 
-// PATCH: Atualizar status (aprovar/rejeitar)
-// ⚠️ NÃO recalcula a média — o GET /api/profissionais faz isso on-the-fly
 app.patch("/api/admin/avaliacoes/:id/status", async (req, res) => {
   const { id } = req.params;
   const { status } = req.body;
@@ -704,7 +732,6 @@ app.patch("/api/admin/avaliacoes/:id/status", async (req, res) => {
   }
 });
 
-// DELETE: Apagar avaliação
 app.delete("/api/admin/avaliacoes/:id", async (req, res) => {
   const { id } = req.params;
 
