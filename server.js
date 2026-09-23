@@ -10,24 +10,27 @@ const nodemailer = require("nodemailer");
 
 const dns = require("dns");
 
-// ⚠️ Força o Node.js a utilizar apenas conexões IPv4 (Elimina o erro ENETUNREACH)
 if (dns.setDefaultResultOrder) {
   dns.setDefaultResultOrder("ipv4first");
 }
 
 const transporter = nodemailer.createTransport({
-  host: "smtp.gmail.com",
+  // ⚠️ Substitui "://gmail.com" pelo IP IPv4 direto do SMTP da Google
+  host: "74.125.140.108", 
   port: 465,
-  secure: true, // Usa SSL diretamente
+  secure: true, 
   auth: {
     user: process.env.GMAIL_USER,
-    pass: process.env.GMAIL_PASSWORD, // Tua Palavra-passe de Aplicação de 16 letras
+    pass: process.env.GMAIL_PASSWORD, 
   },
-  family: 4, // ⚠️ Força resolução IPv4 no Socket
+  family: 4, 
   tls: {
-    rejectUnauthorized: false
+    // ⚠️ Como estamos a usar o IP direto, o Node.js vai reclamar que o nome do host 
+    // não coincide com o certificado SSL da Google. ESTA LINHA AGORA É OBRIGATÓRIA:
+    rejectUnauthorized: false 
   }
 });
+
 
 // ------------------------------------------------------------------
 // HELPERS
