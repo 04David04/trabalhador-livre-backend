@@ -7,23 +7,23 @@ const { createClient } = require("@supabase/supabase-js");
 const multer = require("multer");
 const crypto = require("crypto");
 const nodemailer = require("nodemailer");
-dns = require('dns');
 
-// ⚠️ Força o Node.js a resolver nomes usando IPv4 primeiro (resolve o ENETUNREACH)
+const dns = require("dns");
+
+// ⚠️ Força o Node.js a utilizar apenas conexões IPv4 (Elimina o erro ENETUNREACH)
 if (dns.setDefaultResultOrder) {
-  dns.setDefaultResultOrder('ipv4first');
+  dns.setDefaultResultOrder("ipv4first");
 }
 
 const transporter = nodemailer.createTransport({
-  host: 'smtp.gmail.com',
+  host: "smtp.gmail.com",
   port: 465,
-  secure: true, // Usa SSL na porta 465
+  secure: true, // Usa SSL diretamente
   auth: {
     user: process.env.GMAIL_USER,
-    pass: process.env.GMAIL_PASSWORD,
+    pass: process.env.GMAIL_PASSWORD, // Tua Palavra-passe de Aplicação de 16 letras
   },
-  // Desativa a tentativa de conexão por IPv6 dentro do Nodemailer
-  family: 4,
+  family: 4, // ⚠️ Força resolução IPv4 no Socket
   tls: {
     rejectUnauthorized: false
   }
