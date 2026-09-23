@@ -6,9 +6,15 @@ const cors = require("cors");
 const { createClient } = require("@supabase/supabase-js");
 const multer = require("multer");
 const crypto = require("crypto");
-const { Resend } = require("resend");
+const nodemailer = require("nodemailer");
 
-const resend = new Resend(process.env.RESEND_API_KEY);
+const transporter = nodemailer.createTransport({
+  service: 'gmail',
+  auth: {
+    user: process.env.GMAIL_USER,
+    pass: process.env.GMAIL_PASSWORD
+  }
+});
 
 // ------------------------------------------------------------------
 // HELPERS
@@ -73,7 +79,6 @@ async function uploadParaStorage(file, bucket, pasta = "") {
 // 1. Listar profissionais PÚBLICOS (Apenas Aprovados, Não Bloqueados e Não Excluídos)
 app.get("/api/profissionais", async (req, res) => {
   try {
-    // Busca apenas profissionais aptos para exibição pública com ordenação por destaque
     const { data: profissionais, error: errProf } = await supabase
       .from("profissionais")
       .select("*")
@@ -86,7 +91,6 @@ app.get("/api/profissionais", async (req, res) => {
 
     if (errProf) throw errProf;
 
-    // Busca avaliações APROVADAS
     const { data: avaliacoesAprovadas, error: errAval } = await supabase
       .from("avaliacoes")
       .select("profissional, ponto")
@@ -94,7 +98,6 @@ app.get("/api/profissionais", async (req, res) => {
 
     if (errAval) throw errAval;
 
-    // Agrupa avaliações por profissional
     const statsPorProf = {};
     (avaliacoesAprovadas || []).forEach((a) => {
       if (!statsPorProf[a.profissional]) {
@@ -104,7 +107,6 @@ app.get("/api/profissionais", async (req, res) => {
       statsPorProf[a.profissional].total += 1;
     });
 
-    // Enriquece com média + total de avaliações
     const resultado = profissionais.map((p) => {
       const stats = statsPorProf[p.id] || { soma: 0, total: 0 };
       const media = stats.total > 0 ? stats.soma / stats.total : 0;
@@ -192,7 +194,6 @@ app.post("/api/profissionais", upload.single("foto"), async (req, res) => {
 
     const senhaHash = await bcrypt.hash(senha, 10);
 
-    // Tratamento para garantir que paisContacto e paisWhat fiquem +258
     const paisContactoFinal = paisContacto && paisContacto !== "undefined" ? paisContacto : "+258";
     const paisWhatFinal = paisWhat && paisWhat !== "undefined" ? paisWhat : "+258";
 
@@ -374,7 +375,6 @@ app.put("/api/profissionais/:id", upload.single("foto"), async (req, res) => {
 app.post("/api/esquecisenha", async (req, res) => {
   try {
     const email = String(req.body?.email || "").trim().toLowerCase();
-    
     if (!email) return res.status(400).json({ error: "E-mail obrigatório." });
 
     const { data: profissional, error } = await supabase
@@ -400,8 +400,8 @@ app.post("/api/esquecisenha", async (req, res) => {
     const frontendUrl = process.env.FRONTEND_URL;
     const linkRedefinicao = `${frontendUrl}/?token=${resetToken}&Page=1`;
 
-    const { error: emailError } = await resend.emails.send({
-      from: "noreply@resend.dev",
+    await transporter.sendMail({
+      from: `"Trabalhador Livre" <${process.env.GMAIL_USER}>`,
       to: email,
       subject: "Recuperação de Conta - Redefinir Senha",
       html: `
@@ -433,22 +433,12 @@ app.post("/api/esquecisenha", async (req, res) => {
       `,
     });
 
-    if (emailError) {
-      console.error("Erro Resend:", emailError);
-      return res.status(500).json({ 
-        error: emailError.message || "Erro ao enviar e-mail de recuperação. Tenta novamente mais tarde."
-      });
-    }
-
     return res.status(200).json({ message: "E-mail de recuperação enviado com sucesso!" });
   } catch (err) {
-    console.error("Erro na rota:", err);
-    return res.status(500).json({ 
-      error: err?.message || "Erro ao processar pedido de recuperação."
-    });
+    console.error("Erro ao enviar email:", err);
+    return res.status(500).json({ error: "Erro ao processar pedido de recuperação." });
   }
 });
-
 
 // 9. Redefinir senha
 app.post("/api/redefinir-senha", async (req, res) => {
