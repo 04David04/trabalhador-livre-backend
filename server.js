@@ -207,7 +207,7 @@ app.post("/api/profissionais", upload.single("foto"), async (req, res) => {
           whatsapp,
           paisContacto: paisContactoFinal,
           paisWhat: paisWhatFinal,
-          email,
+          email: email.toLowerCase(),
           localizacao,
           trabalho,
           domicilio: domicilio || "Sim",
@@ -252,7 +252,7 @@ app.post("/api/login", async (req, res) => {
     const { data: porEmail } = await supabase
       .from("profissionais")
       .select("*")
-      .eq("email", termo)
+      .eq("email", termo.toLowerCase())
       .maybeSingle();
 
     const profissional = porTelefone || porEmail;
@@ -295,7 +295,7 @@ app.post("/api/login/verificar", async (req, res) => {
     const { data: profissional, error } = await supabase
       .from("profissionais")
       .select("*")
-      .eq("email", email.trim())
+      .eq("email", email.toLowerCase())
       .maybeSingle();
 
     if (error || !profissional) {
@@ -344,7 +344,9 @@ app.put("/api/profissionais/:id", upload.single("foto"), async (req, res) => {
     const { data: profissionalAtualizado, error: updateError } = await supabase
       .from("profissionais")
       .update({
-        nome, status, telefone, whatsapp, email, profissao,
+        nome, status, telefone, whatsapp,
+        email: email.toLowerCase(),
+        profissao,
         localizacao, trabalho, domicilio,
         paisContacto: paisContactoFinal,
         paisWhat: paisWhatFinal,
