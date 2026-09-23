@@ -374,7 +374,6 @@ app.put("/api/profissionais/:id", upload.single("foto"), async (req, res) => {
 app.post("/api/esquecisenha", async (req, res) => {
   try {
     const email = String(req.body?.email || "").trim().toLowerCase();
-    console.log("✓ 1. Email recebido:", email);
     
     if (!email) return res.status(400).json({ error: "E-mail obrigatório." });
 
@@ -383,8 +382,6 @@ app.post("/api/esquecisenha", async (req, res) => {
       .select("*")
       .eq("email", email)
       .maybeSingle();
-
-    console.log("✓ 2. Profissional encontrado:", profissional?.nome || "NÃO");
 
     if (error || !profissional) {
       return res.status(404).json({ error: "E-mail não encontrado." });
@@ -399,33 +396,56 @@ app.post("/api/esquecisenha", async (req, res) => {
       .eq("id", profissional.id);
 
     if (updateError) throw updateError;
-    console.log("✓ 3. Token atualizado no BD");
 
     const frontendUrl = process.env.FRONTEND_URL;
     const linkRedefinicao = `${frontendUrl}/?token=${resetToken}&Page=1`;
 
-    console.log("⏳ 4. A enviar email para:", email);
-    console.log("API Key existe?", !!process.env.RESEND_API_KEY);
-
-    const { data: emailData, error: emailError } = await resend.emails.send({
+    const { error: emailError } = await resend.emails.send({
       from: "noreply@resend.dev",
       to: email,
       subject: "Recuperação de Conta - Redefinir Senha",
-      html: `<p>Olá ${profissional.nome}, clica <a href="${linkRedefinicao}">aqui</a> para redefinir a senha.</p>`,
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px; background-color: #ffffff;">
+          <div style="text-align: center; padding-bottom: 20px; border-bottom: 2px solid #f1f5f9;">
+            <img src="https://trabalhadorlivre.vercel.app/og-image.png" alt="Trabalhador Livre" style="max-width: 180px; height: auto; margin-bottom: 10px;" />
+            <h1 style="color: #1e293b; margin: 0; font-size: 22px;">Trabalhador Livre</h1>
+            <p style="color: #64748b; margin: 4px 0 0 0; font-size: 13px;">Conectando trabalhadores informais a oportunidades em Quelimane</p>
+          </div>
+          <div style="padding: 24px 0; color: #334155; line-height: 1.6;">
+            <p style="font-size: 16px; margin-top: 0;">Olá, <strong>${profissional.nome}</strong>,</p>
+            <p>Recebemos uma solicitação para redefinir a palavra-passe do teu perfil profissional na plataforma <strong>Trabalhador Livre - Quelimane</strong>.</p>
+            <p>Para criares uma nova credencial, clica no botão abaixo:</p>
+            <div style="text-align: center; margin: 30px 0;">
+              <a href="${linkRedefinicao}" style="background-color: #2563eb; color: #ffffff; padding: 12px 26px; text-decoration: none; font-weight: bold; border-radius: 6px; display: inline-block; font-size: 15px;">
+                Redefinir Minha Senha
+              </a>
+            </div>
+            <div style="font-size: 13px; color: #475569; background-color: #f8fafc; padding: 14px; border-left: 4px solid #2563eb; border-radius: 4px;">
+              <strong>⚠️ Nota de Segurança:</strong> Este link é individual, de uso único e expira em <strong>30 minutos</strong>.
+            </div>
+          </div>
+          <div style="border-top: 1px solid #f1f5f9; padding-top: 20px; text-align: center; color: #94a3b8; font-size: 12px; line-height: 1.5;">
+            <p style="margin: 0; font-weight: bold; color: #64748b;">Trabalhador Livre - Quelimane</p>
+            <p style="margin: 4px 0;">A tua plataforma de visibilidade para eletricistas, encanadores, pedreiros, técnicos de IT e outros profissionais independentes.</p>
+            <p style="margin: 8px 0 0 0;"><a href="https://trabalhadorlivre.vercel.app" style="color: #2563eb; text-decoration: none;">trabalhadorlivre.vercel.app</a></p>
+          </div>
+        </div>
+      `,
     });
 
-    console.log("❌ Erro do Resend:", emailError);
-    console.log("✓ Resposta do Resend:", emailData);
-
     if (emailError) {
-      console.error("ERRO DETALHADO:", JSON.stringify(emailError));
-      throw emailError;
+      console.error("Erro Resend:", emailError);
+      return res.status(500).json({ 
+        error: emailError.message || "Erro ao enviar e-mail de recuperação. Tenta novamente mais tarde."
+      });
     }
 
     return res.status(200).json({ message: "E-mail de recuperação enviado com sucesso!" });
   } catch (err) {
-    console.error("❌ ERRO COMPLETO:", JSON.stringify(err, null, 2));
-    return res.status(500).json({ error: "Erro ao processar pedido de recuperação." });
+    console.error("Erro na rota:", err);
+    return res.status(500).json({ 
+      error: err?.message || "Erro ao processar pedido de recuperação."
+    });
   }
 });
 
