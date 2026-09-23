@@ -312,34 +312,99 @@ app.post("/api/login", async (req, res) => {
   }
 });
 
-// 6. Verificar email e estado do token de recuperação
+// 6. Verificar email e validade do token de recuperação
 app.post("/api/login/verificar", async (req, res) => {
   try {
     const { email } = req.body || {};
     if (!email) return res.status(400).json({ error: "Por favor, preencha o e-mail." });
 
+    const emailLimpo = email.trim().toLowerCase();
+
+    // Consulta na base de dados
     const { data: profissional, error } = await supabase
       .from("profissionais")
       .select("id, email, reset_expira")
-      .eq("email", email.toLowerCase())
+      .eq("email", emailLimpo)
       .maybeSingle();
 
     if (error || !profissional) {
       return res.status(404).json({ error: "Nenhuma conta encontrada com este e-mail.", tipo: "0" });
     }
 
-    // Verifica se existe um token ativo dentro do prazo de 30 minutos
+    // Calcula a validade do token em tempo real
     const agora = new Date();
     const tokenExpira = profissional.reset_expira ? new Date(profissional.reset_expira) : null;
     const tokenAtivo = tokenExpira && tokenExpira > agora;
 
-    res.status(200).json({ 
+    return res.status(200).json({ 
       message: "Conta encontrada!",
-      tokenAtivo: tokenAtivo // Retorna true se houver token válido gerado há menos de 30 min
+      tokenAtivo: Boolean(tokenAtivo) // Retorna true se estiver dentro dos 30 minutos
     });
+
   } catch (error) {
     console.error("Erro no login/verificar:", error);
-    res.status(500).json({ error: error.message || "Erro interno no servidor." });
+    return res.status(500).json({ error: error.message || "Erro interno no servidor." });
+  }
+});
+
+// 7. Atualizar perfil
+app.put("/api/profissionais/:id", upload.single("foto"), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const {
+      nome, status, telefone, whatsapp, email, profissao,
+      localizacao, trabalho, domicilio, paisContacto, paisWhat,
+    } = req.body;
+
+    const { data: profissionalAtual, error: erroBusca } = await supabase
+      .from("profissionais")
+      .select("foto")
+      .eq("id", id)
+      .single();
+
+    if (erroBusca || !profissionalAtual) {
+      return res.status(404).json({ error: "Profissional não encontrado." });
+    }
+
+    let novaFotoUrl = profissionalAtual.foto;
+
+    if (req.file) {
+      const caminhoAntigo = extrairCaminhoBucket(profissionalAtual.foto, "profissionais");
+      if (caminhoAntigo) {
+        await supabase.storage.from("profissionais").remove([caminhoAntigo]);
+      }
+      novaFotoUrl = await uploadParaStorage(req.file, "profissionais", "perfis");
+    }
+
+    const paisContactoFinal = paisContacto && paisContacto !== "undefined" ? paisContacto : "+258";
+    const paisWhatFinal = paisWhat && paisWhat !== "undefined" ? paisWhat : "+258";
+
+    const { data: profissionalAtualizado, error: updateError } = await supabase
+      .from("profissionais")
+      .update({
+        nome, status, telefone, whatsapp,
+        email: email.toLowerCase(),
+        profissao,
+        localizacao, trabalho, domicilio,
+        paisContacto: paisContactoFinal,
+        paisWhat: paisWhatFinal,
+        foto: novaFotoUrl,
+      })
+      .eq("id", id)
+      .select();
+
+    if (updateError) {
+      console.error("Erro ao atualizar banco:", updateError);
+      return res.status(500).json({ error: "Erro ao guardar as alterações no perfil." });
+    }
+
+    return res.status(200).json({
+      message: "Perfil atualizado com sucesso!",
+      profissional: profissionalAtualizado[0],
+    });
+  } catch (error) {
+    console.error("Erro na atualização do perfil:", error);
+    return res.status(500).json({ error: "Erro interno ao atualizar perfil." });
   }
 });
 
