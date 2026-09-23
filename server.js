@@ -10,22 +10,20 @@ const nodemailer = require("nodemailer");
 
 const dns = require("dns");
 
+// Previne erros de rede IPv6 (ENETUNREACH)
 if (dns.setDefaultResultOrder) {
   dns.setDefaultResultOrder("ipv4first");
 }
 
 const transporter = nodemailer.createTransport({
-  host: "smtp.gmail.com", // Voltamos ao nome padrão
-  port: 587,              // 👈 Mudamos para a porta 587 (Evita bloqueios da operadora)
-  secure: false,          // 👈 OBRIGATÓRIO ser false na porta 587 (usa STARTTLS por baixo dos panos)
+  host: "smtp-relay.brevo.com",
+  port: 587,
+  secure: false, // Usa STARTTLS na porta 587
   auth: {
-    user: process.env.GMAIL_USER,
-    pass: process.env.GMAIL_PASSWORD, 
+    user: process.env.BREVO_USER,
+    pass: process.env.BREVO_SMTP_KEY,
   },
-  family: 4,              // 👈 Mantém a prioridade total ao IPv4
-  tls: {
-    rejectUnauthorized: false // 👈 Garante que o aperto de mão TLS não falha na sua máquina
-  }
+  family: 4, // Força a utilização de IPv4
 });
 
 
@@ -420,7 +418,7 @@ app.post("/api/esquecisenha", async (req, res) => {
 
     try {
       await transporter.sendMail({
-        from: `"Trabalhador Livre" <${process.env.GMAIL_USER}>`,
+        from: `"Trabalhador Livre" <${process.env.BREVO_USER}>`,
         to: email,
         subject: "Recuperação de Conta - Redefinir Senha",
         html: `
