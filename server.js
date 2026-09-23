@@ -7,7 +7,7 @@ const { createClient } = require("@supabase/supabase-js");
 const multer = require("multer");
 const crypto = require("crypto");
 const nodemailer = require("nodemailer");
-t dns = require('dns');
+dns = require('dns');
 
 // ⚠️ Força o Node.js a resolver nomes usando IPv4 primeiro (resolve o ENETUNREACH)
 if (dns.setDefaultResultOrder) {
