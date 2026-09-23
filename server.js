@@ -374,6 +374,8 @@ app.put("/api/profissionais/:id", upload.single("foto"), async (req, res) => {
 app.post("/api/esquecisenha", async (req, res) => {
   try {
     const email = String(req.body?.email || "").trim().toLowerCase();
+    console.log("1. Email recebido:", email);
+    
     if (!email) return res.status(400).json({ error: "E-mail obrigatório." });
 
     const { data: profissional, error } = await supabase
@@ -382,22 +384,28 @@ app.post("/api/esquecisenha", async (req, res) => {
       .eq("email", email)
       .maybeSingle();
 
+    console.log("2. Profissional encontrado:", profissional ? profissional.nome : "NÃO ENCONTRADO");
+    console.log("2.1. Erro na busca:", error);
+
     if (error || !profissional) {
       return res.status(404).json({ error: "E-mail não encontrado." });
     }
 
     const resetToken = crypto.randomBytes(32).toString("hex");
     const tokenExpira = new Date(Date.now() + 30 * 60 * 1000).toISOString();
+    console.log("3. Token gerado - expira em:", tokenExpira);
 
     const { error: updateError } = await supabase
       .from("profissionais")
       .update({ reset_token: resetToken, reset_expira: tokenExpira })
       .eq("id", profissional.id);
 
+    console.log("4. Erro na atualização:", updateError);
     if (updateError) throw updateError;
 
     const frontendUrl = process.env.FRONTEND_URL;
     const linkRedefinicao = `${frontendUrl}/?token=${resetToken}&Page=1`;
+    console.log("5. Link gerado:", linkRedefinicao);
 
     const { error: emailError } = await resend.emails.send({
       from: "noreply@resend.dev",
@@ -432,14 +440,17 @@ app.post("/api/esquecisenha", async (req, res) => {
       `,
     });
 
+    console.log("6. Erro ao enviar email:", emailError);
     if (emailError) throw emailError;
 
+    console.log("7. Email enviado com sucesso para:", email);
     return res.status(200).json({ message: "E-mail de recuperação enviado com sucesso!" });
   } catch (err) {
-    console.error("ERRO DETALHADO NO BACKEND:", err);
+    console.error("❌ ERRO DETALHADO NO BACKEND:", err);
     return res.status(500).json({ error: "Erro ao processar pedido de recuperação." });
   }
 });
+
 
 // 9. Redefinir senha
 app.post("/api/redefinir-senha", async (req, res) => {
