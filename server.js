@@ -13,6 +13,11 @@ const transporter = nodemailer.createTransport({
   auth: {
     user: process.env.GMAIL_USER,
     pass: process.env.GMAIL_PASSWORD
+  },
+  port: 587,
+  secure: false, // TLS ao invés de SSL
+  tls: {
+    rejectUnauthorized: false
   }
 });
 
