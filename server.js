@@ -15,21 +15,19 @@ if (dns.setDefaultResultOrder) {
 }
 
 const transporter = nodemailer.createTransport({
-  // ⚠️ Substitui "://gmail.com" pelo IP IPv4 direto do SMTP da Google
-  host: "74.125.140.108", 
-  port: 465,
-  secure: true, 
+  host: "smtp.gmail.com", // Voltamos ao nome padrão
+  port: 587,              // 👈 Mudamos para a porta 587 (Evita bloqueios da operadora)
+  secure: false,          // 👈 OBRIGATÓRIO ser false na porta 587 (usa STARTTLS por baixo dos panos)
   auth: {
     user: process.env.GMAIL_USER,
     pass: process.env.GMAIL_PASSWORD, 
   },
-  family: 4, 
+  family: 4,              // 👈 Mantém a prioridade total ao IPv4
   tls: {
-    // ⚠️ Como estamos a usar o IP direto, o Node.js vai reclamar que o nome do host 
-    // não coincide com o certificado SSL da Google. ESTA LINHA AGORA É OBRIGATÓRIA:
-    rejectUnauthorized: false 
+    rejectUnauthorized: false // 👈 Garante que o aperto de mão TLS não falha na sua máquina
   }
 });
+
 
 
 // ------------------------------------------------------------------
