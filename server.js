@@ -396,35 +396,89 @@ app.put("/api/profissionais/:id", upload.single("foto"), async (req, res) => {
   }
 });
 
-// ------------------------------------------------------------------
-// HELPER DE ENVIO DE E-MAIL VIA BREVO API (Sem SMTP / Sem Timeout)
-// ------------------------------------------------------------------
-async function enviarEmailBrevo({ to, subject, html }) {
-  const response = await fetch("https://api.brevo.com/v3/smtp/email", {
-    method: "POST",
-    headers: {
-      "accept": "application/json",
-      "api-key": process.env.BREVO_API_KEY,
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({
-      sender: {
-        name: "Trabalhador Livre",
-        email: process.env.BREVO_USER,
-      },
-      to: [{ email: to }],
-      subject: subject,
-      htmlContent: html,
-    }),
-  });
+// ==================================================================
+// 8. ESQUECI A SENHA (Atualizado para usar API HTTP)
+// ==================================================================
+app.post("/api/esquecisenha", async (req, res) => {
+  try {
+    const email = String(req.body?.email || "").trim().toLowerCase();
+    if (!email) return res.status(400).json({ error: "E-mail obrigatório." });
 
-  if (!response.ok) {
-    const errorData = await response.json();
-    throw new Error(errorData.message || "Erro ao enviar e-mail via Brevo API");
+    const { data: profissional, error } = await supabase
+      .from("profissionais")
+      .select("*")
+      .eq("email", email)
+      .maybeSingle();
+
+    if (error || !profissional) {
+      return res.status(404).json({ error: "E-mail não encontrado." });
+    }
+
+    const resetToken = crypto.randomBytes(32).toString("hex");
+    const tokenExpira = new Date(Date.now() + 30 * 60 * 1000).toISOString();
+
+    const { error: updateError } = await supabase
+      .from("profissionais")
+      .update({ reset_token: resetToken, reset_expira: tokenExpira })
+      .eq("id", profissional.id);
+
+    if (updateError) {
+      return res.status(500).json({ 
+        error: "Erro ao gerar token de recuperação. Tenta novamente mais tarde." 
+      });
+    }
+
+    const frontendUrl = process.env.FRONTEND_URL;
+    const linkRedefinicao = `${frontendUrl}/?token=${resetToken}&Page=1`;
+
+    try {
+      await enviarEmailBrevo({
+        to: email,
+        subject: "Recuperação de Conta - Redefinir Senha",
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px; background-color: #ffffff;">
+            <div style="text-align: center; padding-bottom: 20px; border-bottom: 2px solid #f1f5f9;">
+              <img src="https://trabalhadorlivre.vercel.app/og-image.png" alt="Trabalhador Livre" style="max-width: 180px; height: auto; margin-bottom: 10px;" />
+              <h1 style="color: #1e293b; margin: 0; font-size: 22px;">Trabalhador Livre</h1>
+              <p style="color: #64748b; margin: 4px 0 0 0; font-size: 13px;">Conectando trabalhadores informais a oportunidades em Quelimane</p>
+            </div>
+            <div style="padding: 24px 0; color: #334155; line-height: 1.6;">
+              <p style="font-size: 16px; margin-top: 0;">Olá, <strong>${profissional.nome}</strong>,</p>
+              <p>Recebemos uma solicitação para redefinir a palavra-passe do teu perfil profissional na plataforma <strong>Trabalhador Livre - Quelimane</strong>.</p>
+              <p>Para criares uma nova credencial, clica no botão abaixo:</p>
+              <div style="text-align: center; margin: 30px 0;">
+                <a href="${linkRedefinicao}" style="background-color: #2563eb; color: #ffffff; padding: 12px 26px; text-decoration: none; font-weight: bold; border-radius: 6px; display: inline-block; font-size: 15px;">
+                  Redefinir Minha Senha
+                </a>
+              </div>
+              <div style="font-size: 13px; color: #475569; background-color: #f8fafc; padding: 14px; border-left: 4px solid #2563eb; border-radius: 4px;">
+                <strong>⚠️ Nota de Segurança:</strong> Este link é individual, de uso único e expira em <strong>30 minutos</strong>.
+              </div>
+            </div>
+            <div style="border-top: 1px solid #f1f5f9; padding-top: 20px; text-align: center; color: #94a3b8; font-size: 12px; line-height: 1.5;">
+              <p style="margin: 0; font-weight: bold; color: #64748b;">Trabalhador Livre - Quelimane</p>
+              <p style="margin: 4px 0;">A tua plataforma de visibilidade para eletricistas, encanadores, pedreiros, técnicos de IT e outros profissionais independentes.</p>
+              <p style="margin: 8px 0 0 0;"><a href="https://trabalhadorlivre.vercel.app" style="color: #2563eb; text-decoration: none;">trabalhadorlivre.vercel.app</a></p>
+            </div>
+          </div>
+        `,
+      });
+    } catch (emailErr) {
+      console.error("Erro ao enviar email via Brevo API:", emailErr);
+      return res.status(500).json({ 
+        error: emailErr?.message || "Erro ao enviar e-mail de recuperação. Verifica se o teu endereço está correto." 
+      });
+    }
+
+    return res.status(200).json({ message: "E-mail de recuperação enviado com sucesso!" });
+  } catch (err) {
+    console.error("Erro geral na rota /api/esquecisenha:", err);
+    return res.status(500).json({ 
+      error: err?.message || "Erro ao processar pedido de recuperação. Tenta novamente." 
+    });
   }
+});
 
-  return response.json();
-}
 
 // 9. Redefinir senha
 app.post("/api/redefinir-senha", async (req, res) => {
