@@ -211,17 +211,40 @@ app.post("/api/profissionais", upload.single("foto"), async (req, res) => {
       email, localizacao, trabalho, domicilio, senha,
     } = req.body;
 
-    let fotoUrl = null;
+    if (!email) {
+      return res.status(400).json({ error: "O e-mail é obrigatório." });
+    }
 
+    const emailFormatado = email.toLowerCase().trim();
+
+    // 1. VERIFICAÇÃO: Checa se o e-mail já existe na base de dados
+    const { data: usuarioExistente, error: erroBusca } = await supabase
+      .from("profissionais")
+      .select("id")
+      .eq("email", emailFormatado)
+      .maybeSingle();
+
+    if (erroBusca) throw erroBusca;
+
+    if (usuarioExistente) {
+      return res.status(400).json({ 
+        error: "Já existe uma conta registada com este endereço de e-mail." 
+      });
+    }
+
+    // 2. Processa a foto apenas se o e-mail for válido e não existente
+    let fotoUrl = null;
     if (req.file) {
       fotoUrl = await uploadParaStorage(req.file, "profissionais");
     }
 
+    // 3. Encriptação da palavra-passe
     const senhaHash = await bcrypt.hash(senha, 10);
 
     const paisContactoFinal = paisContacto && paisContacto !== "undefined" ? paisContacto : "+258";
     const paisWhatFinal = paisWhat && paisWhat !== "undefined" ? paisWhat : "+258";
 
+    // 4. Inserção na base de dados
     const { data, error } = await supabase
       .from("profissionais")
       .insert([
@@ -233,7 +256,7 @@ app.post("/api/profissionais", upload.single("foto"), async (req, res) => {
           whatsapp,
           paisContacto: paisContactoFinal,
           paisWhat: paisWhatFinal,
-          email: email.toLowerCase(),
+          email: emailFormatado,
           localizacao,
           trabalho,
           domicilio: domicilio || "Sim",
