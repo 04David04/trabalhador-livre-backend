@@ -217,22 +217,22 @@ app.post("/api/profissionais", upload.single("foto"), async (req, res) => {
 
     const emailFormatado = email.toLowerCase().trim();
 
-    // 1. VERIFICAÇÃO: Checa se o e-mail já existe na base de dados
+    // 1. VERIFICAÇÃO: Checa se o e-mail já existe (usando array e limit para evitar o erro do Supabase)
     const { data: usuarioExistente, error: erroBusca } = await supabase
       .from("profissionais")
       .select("id")
       .eq("email", emailFormatado)
-      .maybeSingle();
+      .limit(1);
 
     if (erroBusca) throw erroBusca;
 
-    if (usuarioExistente) {
+    if (usuarioExistente && usuarioExistente.length > 0) {
       return res.status(400).json({ 
         error: "Já existe uma conta registada com este endereço de e-mail." 
       });
     }
 
-    // 2. Processa a foto apenas se o e-mail for válido e não existente
+    // 2. Processa a foto apenas se o e-mail estiver livre
     let fotoUrl = null;
     if (req.file) {
       fotoUrl = await uploadParaStorage(req.file, "profissionais");
