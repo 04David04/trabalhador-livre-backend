@@ -822,6 +822,113 @@ app.delete("/api/admin/avaliacoes/:id", async (req, res) => {
   }
 });
 
+
+// Anuncios
+
+// Rota para listar anúncios ativos no front-end
+app.get("/api/anuncios", async (req, res) => {
+  try {
+    const { data: anuncios, error } = await supabase
+      .from("anuncios")
+      .select("id, titulo, subtitulo, imagem_url, link_destino, badge, ordem")
+      .eq("ativo", true)
+      .order("ordem", { ascending: true })
+      .order("criado_em", { ascending: false });
+
+    if (error) throw error;
+
+    res.status(200).json(anuncios);
+  } catch (error) {
+    console.error("Erro ao procurar anúncios:", error);
+    res.status(500).json({
+      error: "Erro interno ao carregar os anúncios.",
+    });
+  }
+});
+
+// Middleware simples para simular/verificar autenticação de Admin
+// (Adapta a verificação de token/headers conforme a tua estrutura atual)
+const verificarAdmin = async (req, res, next) => {
+  try {
+    const adminId = req.headers["x-admin-id"]; // ou via JWT token no header Authorization
+
+    if (!adminId) {
+      return res.status(401).json({ error: "Acesso não autorizado. ID do administrador ausente." });
+    }
+
+    // Consulta na tabela de administradores/profissionais com perfil admin
+    const { data: admin, error } = await supabase
+      .from("profissionais") // ou da tua tabela 'administradores'
+      .select("role")
+      .eq("id", adminId)
+      .maybeSingle();
+
+    if (error || !admin || admin.role !== "admin") {
+      return res.status(403).json({ error: "Acesso negado. Apenas administradores podem cadastrar anúncios." });
+    }
+
+    next();
+  } catch (err) {
+    res.status(500).json({ error: "Erro na verificação de permissões do administrador." });
+  }
+};
+
+// 6. Rota para cadastrar novos anúncios (Restrita para Admin)
+app.post("/api/anuncios", verificarAdmin, upload.single("imagem"), async (req, res) => {
+  try {
+    const { titulo, subtitulo, link_destino, badge, imagem_url, ordem, ativo } = req.body;
+
+    if (!titulo) {
+      return res.status(400).json({ error: "O título do anúncio é obrigatório." });
+    }
+
+    let fotoUrlFinal = null;
+
+    // A) Se o administrador selecionou e enviou um ficheiro de imagem
+    if (req.file) {
+      fotoUrlFinal = await uploadParaStorage(req.file, "anuncios");
+    } 
+    // B) Caso contrário, se forneceu o link direto da imagem
+    else if (imagem_url && imagem_url.trim() !== "") {
+      fotoUrlFinal = imagem_url.trim();
+    } 
+    else {
+      return res.status(400).json({ 
+        error: "É necessário selecionar um ficheiro de imagem ou fornecer uma URL válida de imagem." 
+      });
+    }
+
+    // Inserção na tabela 'anuncios'
+    const { data, error } = await supabase
+      .from("anuncios")
+      .insert([
+        {
+          titulo,
+          subtitulo: subtitulo || null,
+          imagem_url: fotoUrlFinal,
+          link_destino: link_destino || null,
+          badge: badge || "Patrocinado",
+          ordem: ordem ? parseInt(ordem, 10) : 0,
+          ativo: ativo !== undefined ? JSON.parse(ativo) : true,
+        },
+      ])
+      .select();
+
+    if (error) throw error;
+
+    res.status(201).json({
+      message: "Anúncio cadastrado com sucesso!",
+      data: data[0],
+    });
+
+  } catch (error) {
+    console.error("Erro ao cadastrar anúncio:", error);
+    res.status(500).json({
+      error: error.message || "Erro interno ao cadastrar o anúncio.",
+    });
+  }
+});
+
 // ==================================================================
 // LISTEN
 // ==================================================================
