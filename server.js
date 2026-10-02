@@ -957,6 +957,84 @@ app.post("/api/anuncios", verificarAdmin, upload.single("imagem"), async (req, r
       data: data[0],
     });
 
+    // Função auxiliar para extrair o nome do ficheiro a partir da URL do Supabase
+function extrairCaminhoStorage(urlCompleta, bucket = "anuncios") {
+  if (!urlCompleta || !urlCompleta.includes(bucket)) return null;
+  const partes = urlCompleta.split(`${bucket}/`);
+  return partes.length > 1 ? partes[1] : null;
+}
+
+// ROTA: Atualizar Anúncio com substituição da imagem antiga
+app.put("/api/admin/anuncios/:id", verificarAdmin, upload.single("imagem"), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { titulo, subtitulo, link_destino, badge, imagem_url, ordem, ativo } = req.body;
+
+    // 1. Procurar o anúncio existente na base de dados
+    const { data: anuncioAntigo, error: errorBusca } = await supabase
+      .from("anuncios")
+      .select("*")
+      .eq("id", id)
+      .single();
+
+    if (errorBusca || !anuncioAntigo) {
+      return res.status(404).json({ error: "Anúncio não encontrado." });
+    }
+
+    let fotoUrlFinal = anuncioAntigo.imagem_url; // Por padrão, mantém a foto antiga
+
+    // A) Se o administrador enviou um NOVO ficheiro de imagem
+    if (req.file) {
+      // 1. Upload da nova foto para o Supabase Storage
+      fotoUrlFinal = await uploadParaStorage(req.file, "anuncios");
+
+      // 2. Tentar apagar o ficheiro antigo do bucket no Supabase (se pertencer ao storage)
+      const caminhoAntigo = extrairCaminhoStorage(anuncioAntigo.imagem_url, "anuncios");
+      if (caminhoAntigo) {
+        await supabase.storage.from("anuncios").remove([caminhoAntigo]);
+      }
+    } 
+    // B) Se forneceu uma nova URL externa direta
+    else if (imagem_url && imagem_url.trim() !== "" && imagem_url !== anuncioAntigo.imagem_url) {
+      fotoUrlFinal = imagem_url.trim();
+
+      // Apagar foto antiga do storage se houver troca para URL externa
+      const caminhoAntigo = extrairCaminhoStorage(anuncioAntigo.imagem_url, "anuncios");
+      if (caminhoAntigo) {
+        await supabase.storage.from("anuncios").remove([caminhoAntigo]);
+      }
+    }
+
+    // 2. Atualizar o registo na tabela 'anuncios'
+    const { data, error } = await supabase
+      .from("anuncios")
+      .update({
+        titulo: titulo || anuncioAntigo.titulo,
+        subtitulo: subtitulo !== undefined ? subtitulo : anuncioAntigo.subtitulo,
+        imagem_url: fotoUrlFinal,
+        link_destino: link_destino !== undefined ? link_destino : anuncioAntigo.link_destino,
+        badge: badge !== undefined ? badge : anuncioAntigo.badge,
+        ordem: ordem !== undefined ? parseInt(ordem, 10) : anuncioAntigo.ordem,
+        ativo: ativo !== undefined ? JSON.parse(ativo) : anuncioAntigo.ativo,
+      })
+      .eq("id", id)
+      .select();
+
+    if (error) throw error;
+
+    res.status(200).json({
+      message: "Anúncio atualizado com sucesso!",
+      data: data[0],
+    });
+
+  } catch (error) {
+    console.error("Erro ao atualizar anúncio:", error);
+    res.status(500).json({
+      error: error.message || "Erro interno ao atualizar o anúncio.",
+    });
+  }
+});
+
   } catch (error) {
     console.error("Erro ao cadastrar anúncio:", error);
     res.status(500).json({
