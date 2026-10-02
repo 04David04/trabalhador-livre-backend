@@ -873,7 +873,43 @@ const verificarAdmin = async (req, res, next) => {
   }
 };
 
-// 6. Rota para cadastrar novos anúncios (Restrita para Admin)
+// Lista TODOS os anúncios (Ativos e Inativos) para o Admin
+app.get("/api/admin/anuncios", async (req, res) => {
+  try {
+    const adminId = req.headers["x-admin-id"];
+
+    // Validação de permissão de administrador
+    if (!adminId) {
+      return res.status(401).json({ error: "Acesso não autorizado. ID de administrador em falta." });
+    }
+
+    const { data: admin, error: errAdmin } = await supabase
+      .from("profissionais")
+      .select("role")
+      .eq("id", adminId)
+      .maybeSingle();
+
+    if (errAdmin || !admin || admin.role !== "admin") {
+      return res.status(403).json({ error: "Acesso negado. Apenas administradores podem gerir anúncios." });
+    }
+
+    // Consulta todos os anúncios ordenados pela ordem de exibição
+    const { data: anuncios, error } = await supabase
+      .from("anuncios")
+      .select("*")
+      .order("ordem", { ascending: true })
+      .order("criado_em", { ascending: false });
+
+    if (error) throw error;
+
+    res.status(200).json(anuncios || []);
+  } catch (error) {
+    console.error("Erro ao listar anúncios no Admin:", error);
+    res.status(500).json({ error: "Erro interno ao carregar os anúncios do painel." });
+  }
+});
+
+// Rota para cadastrar novos anúncios (Restrita para Admin)
 app.post("/api/anuncios", verificarAdmin, upload.single("imagem"), async (req, res) => {
   try {
     const { titulo, subtitulo, link_destino, badge, imagem_url, ordem, ativo } = req.body;
