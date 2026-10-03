@@ -6,17 +6,30 @@ const cors = require("cors");
 const { createClient } = require("@supabase/supabase-js");
 const multer = require("multer");
 const crypto = require("crypto");
-const nodemailer = require("nodemailer");
 
+const app = express();
+
+app.use(cors());
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
 // ------------------------------------------------------------------
-// HELPER DE ENVIO DE E-MAIL VIA BREVO API (Sem SMTP / Sem Timeout)
+// CONFIGURAÇÃO DO SUPABASE E UPLOAD (MULTER)
+// ------------------------------------------------------------------
+const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+const upload = multer({ storage: multer.memoryStorage() });
+
+// ------------------------------------------------------------------
+// HELPERS
 // ------------------------------------------------------------------
 async function enviarEmailBrevo({ to, subject, html }) {
   const response = await fetch("https://api.brevo.com/v3/smtp/email", {
     method: "POST",
     headers: {
-      "accept": "application/json",
+      accept: "application/json",
       "api-key": process.env.BREVO_API_KEY,
       "content-type": "application/json",
     },
@@ -39,11 +52,6 @@ async function enviarEmailBrevo({ to, subject, html }) {
   return response.json();
 }
 
-
-
-// ------------------------------------------------------------------
-// HELPERS
-// ------------------------------------------------------------------
 function extrairCaminhoBucket(urlFoto, bucket = "profissionais") {
   if (!urlFoto) return null;
   try {
@@ -54,24 +62,12 @@ function extrairCaminhoBucket(urlFoto, bucket = "profissionais") {
   }
 }
 
-const app = express();
+function extrairCaminhoStorage(urlCompleta, bucket = "anuncios") {
+  if (!urlCompleta || !urlCompleta.includes(bucket)) return null;
+  const partes = urlCompleta.split(`${bucket}/`);
+  return partes.length > 1 ? partes[1] : null;
+}
 
-app.use(cors());
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-
-// ------------------------------------------------------------------
-// SUPABASE
-// ------------------------------------------------------------------
-const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-const supabase = createClient(supabaseUrl, supabaseServiceKey);
-
-const upload = multer({ storage: multer.memoryStorage() });
-
-// ------------------------------------------------------------------
-// UPLOAD GENÉRICO
-// ------------------------------------------------------------------
 async function uploadParaStorage(file, bucket, pasta = "") {
   const ext = file.originalname.split(".").pop();
   const nomeLimpo = file.originalname
@@ -97,11 +93,38 @@ async function uploadParaStorage(file, bucket, pasta = "") {
   return publicUrlData.publicUrl;
 }
 
+// ------------------------------------------------------------------
+// MIDDLEWARE DE AUTENTICAÇÃO DE ADMINISTRADOR
+// ------------------------------------------------------------------
+const verificarAdmin = async (req, res, next) => {
+  try {
+    const adminId = req.headers["x-admin-id"];
+
+    if (!adminId) {
+      return res.status(401).json({ error: "Acesso não autorizado. ID do administrador ausente." });
+    }
+
+    const { data: admin, error } = await supabase
+      .from("profissionais")
+      .select("role")
+      .eq("id", adminId)
+      .maybeSingle();
+
+    if (error || !admin || admin.role !== "admin") {
+      return res.status(403).json({ error: "Acesso negado. Apenas administradores têm permissão." });
+    }
+
+    next();
+  } catch (err) {
+    res.status(500).json({ error: "Erro na verificação de permissões do administrador." });
+  }
+};
+
 // ==================================================================
 // ROTAS PÚBLICAS
 // ==================================================================
 
-// 1. Listar profissionais PÚBLICOS (Apenas Aprovados, Não Bloqueados e Não Excluídos)
+// 1. Listar profissionais PÚBLICOS
 app.get("/api/profissionais", async (req, res) => {
   try {
     const { data: profissionais, error: errProf } = await supabase
@@ -154,17 +177,15 @@ app.get("/api/profissionais", async (req, res) => {
 // 2. Cliente envia avaliação
 app.post("/api/avaliacoes", async (req, res) => {
   try {
-    const { profissional, contacto, classificacao, ponto, comentario, nome, email } =
-      req.body;
+    const { profissional, contacto, classificacao, ponto, comentario, nome, email } = req.body;
 
     if (!profissional || ponto === undefined || !classificacao || !comentario || !nome) {
       return res.status(400).json({
-        error:
-          "Por favor, preencha os campos obrigatórios: classificação, comentário, nome e contacto.",
+        error: "Por favor, preencha os campos obrigatórios: classificação, comentário, nome e contacto.",
       });
     }
 
-    const { data, error } = await supabase.from("avaliacoes").insert([
+    const { error } = await supabase.from("avaliacoes").insert([
       {
         classificacao,
         comentario,
@@ -217,7 +238,6 @@ app.post("/api/profissionais", upload.single("foto"), async (req, res) => {
 
     const emailFormatado = email.toLowerCase().trim();
 
-    // 1. VERIFICAÇÃO: Checa se o e-mail já existe (usando array e limit para evitar o erro do Supabase)
     const { data: usuarioExistente, error: erroBusca } = await supabase
       .from("profissionais")
       .select("id")
@@ -232,19 +252,16 @@ app.post("/api/profissionais", upload.single("foto"), async (req, res) => {
       });
     }
 
-    // 2. Processa a foto apenas se o e-mail estiver livre
     let fotoUrl = null;
     if (req.file) {
       fotoUrl = await uploadParaStorage(req.file, "profissionais");
     }
 
-    // 3. Encriptação da palavra-passe
     const senhaHash = await bcrypt.hash(senha, 10);
 
     const paisContactoFinal = paisContacto && paisContacto !== "undefined" ? paisContacto : "+258";
     const paisWhatFinal = paisWhat && paisWhat !== "undefined" ? paisWhat : "+258";
 
-    // 4. Inserção na base de dados
     const { data, error } = await supabase
       .from("profissionais")
       .insert([
@@ -335,7 +352,7 @@ app.post("/api/login", async (req, res) => {
   }
 });
 
-// 6. Verificar email e validade do token de recuperação
+// 6. Verificar email e token de recuperação
 app.post("/api/login/verificar", async (req, res) => {
   try {
     const { email } = req.body || {};
@@ -343,7 +360,6 @@ app.post("/api/login/verificar", async (req, res) => {
 
     const emailLimpo = email.trim().toLowerCase();
 
-    // Consulta na base de dados
     const { data: profissional, error } = await supabase
       .from("profissionais")
       .select("id, email, reset_expira")
@@ -354,14 +370,13 @@ app.post("/api/login/verificar", async (req, res) => {
       return res.status(404).json({ error: "Nenhuma conta encontrada com este e-mail.", tipo: "0" });
     }
 
-    // Calcula a validade do token em tempo real
     const agora = new Date();
     const tokenExpira = profissional.reset_expira ? new Date(profissional.reset_expira) : null;
     const tokenAtivo = tokenExpira && tokenExpira > agora;
 
     return res.status(200).json({ 
       message: "Conta encontrada!",
-      tokenAtivo: Boolean(tokenAtivo) // Retorna true se estiver dentro dos 30 minutos
+      tokenAtivo: Boolean(tokenAtivo)
     });
 
   } catch (error) {
@@ -406,7 +421,7 @@ app.put("/api/profissionais/:id", upload.single("foto"), async (req, res) => {
       .from("profissionais")
       .update({
         nome, status, telefone, whatsapp,
-        email: email.toLowerCase(),
+        email: email ? email.toLowerCase() : undefined,
         profissao,
         localizacao, trabalho, domicilio,
         paisContacto: paisContactoFinal,
@@ -431,9 +446,7 @@ app.put("/api/profissionais/:id", upload.single("foto"), async (req, res) => {
   }
 });
 
-// ==================================================================
-// 8. ESQUECI A SENHA (Atualizado para usar API HTTP)
-// ==================================================================
+// 8. Esqueci a senha
 app.post("/api/esquecisenha", async (req, res) => {
   try {
     const email = String(req.body?.email || "").trim().toLowerCase();
@@ -473,7 +486,6 @@ app.post("/api/esquecisenha", async (req, res) => {
         html: `
           <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px; background-color: #ffffff;">
             <div style="text-align: center; padding-bottom: 20px; border-bottom: 2px solid #f1f5f9;">
-              <img src="https://trabalhadorlivre.vercel.app/og-image.png" alt="Trabalhador Livre" style="max-width: 180px; height: auto; margin-bottom: 10px;" />
               <h1 style="color: #1e293b; margin: 0; font-size: 22px;">Trabalhador Livre</h1>
               <p style="color: #64748b; margin: 4px 0 0 0; font-size: 13px;">Conectando trabalhadores informais a oportunidades em Quelimane</p>
             </div>
@@ -490,10 +502,8 @@ app.post("/api/esquecisenha", async (req, res) => {
                 <strong>⚠️ Nota de Segurança:</strong> Este link é individual, de uso único e expira em <strong>30 minutos</strong>.
               </div>
             </div>
-            <div style="border-top: 1px solid #f1f5f9; padding-top: 20px; text-align: center; color: #94a3b8; font-size: 12px; line-height: 1.5;">
+            <div style="border-top: 1px solid #f1f5f9; padding-top: 20px; text-align: center; color: #94a3b8; font-size: 12px;">
               <p style="margin: 0; font-weight: bold; color: #64748b;">Trabalhador Livre - Quelimane</p>
-              <p style="margin: 4px 0;">A tua plataforma de visibilidade para eletricistas, encanadores, pedreiros, técnicos de IT e outros profissionais independentes.</p>
-              <p style="margin: 8px 0 0 0;"><a href="https://trabalhadorlivre.vercel.app" style="color: #2563eb; text-decoration: none;">trabalhadorlivre.vercel.app</a></p>
             </div>
           </div>
         `,
@@ -501,19 +511,16 @@ app.post("/api/esquecisenha", async (req, res) => {
     } catch (emailErr) {
       console.error("Erro ao enviar email via Brevo API:", emailErr);
       return res.status(500).json({ 
-        error: emailErr?.message || "Erro ao enviar e-mail de recuperação. Verifica se o teu endereço está correto." 
+        error: emailErr?.message || "Erro ao enviar e-mail de recuperação." 
       });
     }
 
     return res.status(200).json({ message: "E-mail de recuperação enviado com sucesso!" });
   } catch (err) {
     console.error("Erro geral na rota /api/esquecisenha:", err);
-    return res.status(500).json({ 
-      error: err?.message || "Erro ao processar pedido de recuperação. Tenta novamente." 
-    });
+    return res.status(500).json({ error: err?.message || "Erro ao processar pedido de recuperação." });
   }
 });
-
 
 // 9. Redefinir senha
 app.post("/api/redefinir-senha", async (req, res) => {
@@ -547,7 +554,7 @@ app.post("/api/redefinir-senha", async (req, res) => {
   }
 });
 
-// 10. Histórico de avaliações do profissional logado
+// 10. Histórico de avaliações do profissional
 app.get("/api/profissionais/:id/avaliacoes", async (req, res) => {
   const { id } = req.params;
   try {
@@ -566,13 +573,177 @@ app.get("/api/profissionais/:id/avaliacoes", async (req, res) => {
 });
 
 // ==================================================================
-// ROTAS DE ADMINISTRAÇÃO
+// ROTAS DE ANÚNCIOS (PÚBLICAS E ADMIN)
 // ==================================================================
 
-// ---- PROFISSIONAIS ----
+// 1. Listar anúncios ativos para o site público
+app.get("/api/anuncios", async (req, res) => {
+  try {
+    const { data: anuncios, error } = await supabase
+      .from("anuncios")
+      .select("id, titulo, subtitulo, imagem_url, link_destino, badge, ordem")
+      .eq("ativo", true)
+      .order("ordem", { ascending: true })
+      .order("criado_em", { ascending: false });
 
-// Listar TODOS os profissionais para a tabela de Admin (Apenas ignora excluídos)
-app.get("/api/admin/profissionais", async (req, res) => {
+    if (error) throw error;
+
+    res.status(200).json(anuncios || []);
+  } catch (error) {
+    console.error("Erro ao procurar anúncios:", error);
+    res.status(500).json({ error: "Erro interno ao carregar os anúncios." });
+  }
+});
+
+// 2. Listar todos os anúncios no Painel de Administração
+app.get("/api/admin/anuncios", verificarAdmin, async (req, res) => {
+  try {
+    const { data: anuncios, error } = await supabase
+      .from("anuncios")
+      .select("*")
+      .order("ordem", { ascending: true })
+      .order("criado_em", { ascending: false });
+
+    if (error) throw error;
+
+    res.status(200).json(anuncios || []);
+  } catch (error) {
+    console.error("Erro ao listar anúncios no Admin:", error);
+    res.status(500).json({ error: "Erro interno ao carregar os anúncios do painel." });
+  }
+});
+
+// 3. Cadastrar novos anúncios
+app.post("/api/admin/anuncios", verificarAdmin, upload.single("imagem"), async (req, res) => {
+  try {
+    const { titulo, subtitulo, link_destino, badge, imagem_url, ordem, ativo } = req.body;
+
+    if (!titulo) {
+      return res.status(400).json({ error: "O título do anúncio é obrigatório." });
+    }
+
+    let fotoUrlFinal = null;
+
+    if (req.file) {
+      fotoUrlFinal = await uploadParaStorage(req.file, "anuncios");
+    } else if (imagem_url && imagem_url.trim() !== "") {
+      fotoUrlFinal = imagem_url.trim();
+    } else {
+      return res.status(400).json({ 
+        error: "É necessário selecionar um ficheiro de imagem ou fornecer uma URL válida." 
+      });
+    }
+
+    let ativoBool = true;
+    if (ativo !== undefined) {
+      ativoBool = typeof ativo === "boolean" ? ativo : ativo === "true";
+    }
+
+    const { data, error } = await supabase
+      .from("anuncios")
+      .insert([
+        {
+          titulo,
+          subtitulo: subtitulo || null,
+          imagem_url: fotoUrlFinal,
+          link_destino: link_destino || null,
+          badge: badge || "Patrocinado",
+          ordem: ordem ? parseInt(ordem, 10) : 0,
+          ativo: ativoBool,
+        },
+      ])
+      .select();
+
+    if (error) throw error;
+
+    res.status(201).json({
+      message: "Anúncio cadastrado com sucesso!",
+      data: data[0],
+    });
+  } catch (error) {
+    console.error("Erro ao cadastrar anúncio:", error);
+    res.status(500).json({ error: error.message || "Erro interno ao cadastrar o anúncio." });
+  }
+});
+
+// 4. Editar Anúncio (PUT /api/admin/anuncios/:id)
+app.put("/api/admin/anuncios/:id", verificarAdmin, upload.single("imagem"), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { titulo, subtitulo, link_destino, badge, imagem_url, ordem, ativo } = req.body;
+
+    const idNumero = parseInt(id, 10);
+    if (isNaN(idNumero)) {
+      return res.status(400).json({ error: "ID de anúncio inválido." });
+    }
+
+    const { data: anuncioAntigo, error: errorBusca } = await supabase
+      .from("anuncios")
+      .select("*")
+      .eq("id", idNumero)
+      .single();
+
+    if (errorBusca || !anuncioAntigo) {
+      return res.status(404).json({ error: "Anúncio não encontrado." });
+    }
+
+    let fotoUrlFinal = anuncioAntigo.imagem_url;
+
+    if (req.file) {
+      fotoUrlFinal = await uploadParaStorage(req.file, "anuncios");
+
+      const caminhoAntigo = extrairCaminhoStorage(anuncioAntigo.imagem_url, "anuncios");
+      if (caminhoAntigo) {
+        await supabase.storage.from("anuncios").remove([caminhoAntigo]);
+      }
+    } else if (imagem_url && imagem_url.trim() !== "" && imagem_url !== anuncioAntigo.imagem_url) {
+      fotoUrlFinal = imagem_url.trim();
+
+      const caminhoAntigo = extrairCaminhoStorage(anuncioAntigo.imagem_url, "anuncios");
+      if (caminhoAntigo) {
+        await supabase.storage.from("anuncios").remove([caminhoAntigo]);
+      }
+    }
+
+    let ativoBool = anuncioAntigo.ativo;
+    if (ativo !== undefined) {
+      ativoBool = typeof ativo === "boolean" ? ativo : ativo === "true";
+    }
+
+    const { data, error } = await supabase
+      .from("anuncios")
+      .update({
+        titulo: titulo || anuncioAntigo.titulo,
+        subtitulo: subtitulo !== undefined ? subtitulo : anuncioAntigo.subtitulo,
+        imagem_url: fotoUrlFinal,
+        link_destino: link_destino !== undefined ? link_destino : anuncioAntigo.link_destino,
+        badge: badge !== undefined ? badge : anuncioAntigo.badge,
+        ordem: ordem !== undefined ? parseInt(ordem, 10) : anuncioAntigo.ordem,
+        ativo: ativoBool,
+      })
+      .eq("id", idNumero)
+      .select();
+
+    if (error) throw error;
+
+    res.status(200).json({
+      message: "Anúncio atualizado com sucesso!",
+      data: data[0],
+    });
+
+  } catch (error) {
+    console.error("Erro ao atualizar anúncio:", error);
+    res.status(500).json({ error: error.message || "Erro interno ao atualizar o anúncio." });
+  }
+});
+
+// ==================================================================
+// ROTAS DE ADMINISTRAÇÃO (GERAL)
+// ==================================================================
+
+// ---- PROFISSIONAIS (ADMIN) ----
+
+app.get("/api/admin/profissionais", verificarAdmin, async (req, res) => {
   try {
     const { data, error } = await supabase
       .from("profissionais")
@@ -588,7 +759,7 @@ app.get("/api/admin/profissionais", async (req, res) => {
   }
 });
 
-app.patch("/api/admin/profissionais/:id/condicao", async (req, res) => {
+app.patch("/api/admin/profissionais/:id/condicao", verificarAdmin, async (req, res) => {
   const { id } = req.params;
   const { condicao } = req.body;
 
@@ -615,7 +786,7 @@ app.patch("/api/admin/profissionais/:id/condicao", async (req, res) => {
   }
 });
 
-app.patch("/api/admin/profissionais/:id/status", async (req, res) => {
+app.patch("/api/admin/profissionais/:id/status", verificarAdmin, async (req, res) => {
   const { id } = req.params;
   const { verificado, destaque, bloqueado } = req.body;
 
@@ -647,7 +818,7 @@ app.patch("/api/admin/profissionais/:id/status", async (req, res) => {
   }
 });
 
-app.delete("/api/admin/profissionais/:id", async (req, res) => {
+app.delete("/api/admin/profissionais/:id", verificarAdmin, async (req, res) => {
   const { id } = req.params;
 
   try {
@@ -669,50 +840,46 @@ app.delete("/api/admin/profissionais/:id", async (req, res) => {
   }
 });
 
-// ---- CATEGORIAS / ÁREAS ----
+// ---- CATEGORIAS / ÁREAS (ADMIN) ----
 
-app.post(
-  "/api/admin/categorias",
-  upload.single("foto"),
-  async (req, res) => {
-    const { nome, oque_faz, quando_chamar } = req.body;
+app.post("/api/admin/categorias", verificarAdmin, upload.single("foto"), async (req, res) => {
+  const { nome, oque_faz, quando_chamar } = req.body;
 
-    if (!nome || !nome.trim()) {
-      return res.status(400).json({ mensagem: "O nome da área é obrigatório." });
-    }
-
-    try {
-      let fotoUrl = null;
-
-      if (req.file) {
-        fotoUrl = await uploadParaStorage(req.file, "profissionais", "areas");
-      } else if (req.body.foto && typeof req.body.foto === "string") {
-        fotoUrl = req.body.foto.trim();
-      }
-
-      const { data, error } = await supabase
-        .from("areas")
-        .insert([
-          {
-            nome: nome.trim(),
-            foto: fotoUrl,
-            oque_faz: oque_faz ? oque_faz.trim() : null,
-            quando_chamar: quando_chamar ? quando_chamar.trim() : null,
-          },
-        ])
-        .select();
-
-      if (error) throw error;
-
-      return res.status(201).json(data[0]);
-    } catch (err) {
-      console.error("Erro ao cadastrar categoria:", err.message);
-      return res.status(500).json({ mensagem: "Erro interno ao guardar a categoria." });
-    }
+  if (!nome || !nome.trim()) {
+    return res.status(400).json({ mensagem: "O nome da área é obrigatório." });
   }
-);
 
-app.delete("/api/admin/categorias/:id", async (req, res) => {
+  try {
+    let fotoUrl = null;
+
+    if (req.file) {
+      fotoUrl = await uploadParaStorage(req.file, "profissionais", "areas");
+    } else if (req.body.foto && typeof req.body.foto === "string") {
+      fotoUrl = req.body.foto.trim();
+    }
+
+    const { data, error } = await supabase
+      .from("areas")
+      .insert([
+        {
+          nome: nome.trim(),
+          foto: fotoUrl,
+          oque_faz: oque_faz ? oque_faz.trim() : null,
+          quando_chamar: quando_chamar ? quando_chamar.trim() : null,
+        },
+      ])
+      .select();
+
+    if (error) throw error;
+
+    return res.status(201).json(data[0]);
+  } catch (err) {
+    console.error("Erro ao cadastrar categoria:", err.message);
+    return res.status(500).json({ mensagem: "Erro interno ao guardar a categoria." });
+  }
+});
+
+app.delete("/api/admin/categorias/:id", verificarAdmin, async (req, res) => {
   const { id } = req.params;
 
   try {
@@ -739,24 +906,9 @@ app.delete("/api/admin/categorias/:id", async (req, res) => {
   }
 });
 
-app.get("/api/categorias", async (req, res) => {
-  try {
-    const { data, error } = await supabase
-      .from("categorias")
-      .select("*")
-      .order("nome", { ascending: true });
+// ---- AVALIAÇÕES (ADMIN) ----
 
-    if (error) throw error;
-    return res.status(200).json(data);
-  } catch (err) {
-    console.error("Erro ao procurar categorias:", err.message);
-    return res.status(500).json({ mensagem: "Erro ao procurar categorias." });
-  }
-});
-
-// ---- AVALIAÇÕES ----
-
-app.get("/api/admin/avaliacoes", async (req, res) => {
+app.get("/api/admin/avaliacoes", verificarAdmin, async (req, res) => {
   try {
     const { data, error } = await supabase
       .from("avaliacoes")
@@ -781,7 +933,7 @@ app.get("/api/admin/avaliacoes", async (req, res) => {
   }
 });
 
-app.patch("/api/admin/avaliacoes/:id/status", async (req, res) => {
+app.patch("/api/admin/avaliacoes/:id/status", verificarAdmin, async (req, res) => {
   const { id } = req.params;
   const { status } = req.body;
 
@@ -808,7 +960,7 @@ app.patch("/api/admin/avaliacoes/:id/status", async (req, res) => {
   }
 });
 
-app.delete("/api/admin/avaliacoes/:id", async (req, res) => {
+app.delete("/api/admin/avaliacoes/:id", verificarAdmin, async (req, res) => {
   const { id } = req.params;
 
   try {
@@ -822,230 +974,10 @@ app.delete("/api/admin/avaliacoes/:id", async (req, res) => {
   }
 });
 
-
-// Anuncios
-
-// Rota para listar anúncios ativos no front-end
-app.get("/api/anuncios", async (req, res) => {
-  try {
-    const { data: anuncios, error } = await supabase
-      .from("anuncios")
-      .select("id, titulo, subtitulo, imagem_url, link_destino, badge, ordem")
-      .eq("ativo", true)
-      .order("ordem", { ascending: true })
-      .order("criado_em", { ascending: false });
-
-    if (error) throw error;
-
-    res.status(200).json(anuncios);
-  } catch (error) {
-    console.error("Erro ao procurar anúncios:", error);
-    res.status(500).json({
-      error: "Erro interno ao carregar os anúncios.",
-    });
-  }
-});
-
-// Middleware simples para simular/verificar autenticação de Admin
-// (Adapta a verificação de token/headers conforme a tua estrutura atual)
-const verificarAdmin = async (req, res, next) => {
-  try {
-    const adminId = req.headers["x-admin-id"]; // ou via JWT token no header Authorization
-
-    if (!adminId) {
-      return res.status(401).json({ error: "Acesso não autorizado. ID do administrador ausente." });
-    }
-
-    // Consulta na tabela de administradores/profissionais com perfil admin
-    const { data: admin, error } = await supabase
-      .from("profissionais") // ou da tua tabela 'administradores'
-      .select("role")
-      .eq("id", adminId)
-      .maybeSingle();
-
-    if (error || !admin || admin.role !== "admin") {
-      return res.status(403).json({ error: "Acesso negado. Apenas administradores podem cadastrar anúncios." });
-    }
-
-    next();
-  } catch (err) {
-    res.status(500).json({ error: "Erro na verificação de permissões do administrador." });
-  }
-};
-
-// Lista TODOS os anúncios (Ativos e Inativos) para o Admin
-app.get("/api/admin/anuncios", async (req, res) => {
-  try {
-    const adminId = req.headers["x-admin-id"];
-
-    // Validação de permissão de administrador
-    if (!adminId) {
-      return res.status(401).json({ error: "Acesso não autorizado. ID de administrador em falta." });
-    }
-
-    const { data: admin, error: errAdmin } = await supabase
-      .from("profissionais")
-      .select("role")
-      .eq("id", adminId)
-      .maybeSingle();
-
-    if (errAdmin || !admin || admin.role !== "admin") {
-      return res.status(403).json({ error: "Acesso negado. Apenas administradores podem gerir anúncios." });
-    }
-
-    // Consulta todos os anúncios ordenados pela ordem de exibição
-    const { data: anuncios, error } = await supabase
-      .from("anuncios")
-      .select("*")
-      .order("ordem", { ascending: true })
-      .order("criado_em", { ascending: false });
-
-    if (error) throw error;
-
-    res.status(200).json(anuncios || []);
-  } catch (error) {
-    console.error("Erro ao listar anúncios no Admin:", error);
-    res.status(500).json({ error: "Erro interno ao carregar os anúncios do painel." });
-  }
-});
-
-// Rota para cadastrar novos anúncios (Restrita para Admin)
-app.post("/api/anuncios", verificarAdmin, upload.single("imagem"), async (req, res) => {
-  try {
-    const { titulo, subtitulo, link_destino, badge, imagem_url, ordem, ativo } = req.body;
-
-    if (!titulo) {
-      return res.status(400).json({ error: "O título do anúncio é obrigatório." });
-    }
-
-    let fotoUrlFinal = null;
-
-    // A) Se o administrador selecionou e enviou um ficheiro de imagem
-    if (req.file) {
-      fotoUrlFinal = await uploadParaStorage(req.file, "anuncios");
-    } 
-    // B) Caso contrário, se forneceu o link direto da imagem
-    else if (imagem_url && imagem_url.trim() !== "") {
-      fotoUrlFinal = imagem_url.trim();
-    } 
-    else {
-      return res.status(400).json({ 
-        error: "É necessário selecionar um ficheiro de imagem ou fornecer uma URL válida de imagem." 
-      });
-    }
-
-    // Inserção na tabela 'anuncios'
-    const { data, error } = await supabase
-      .from("anuncios")
-      .insert([
-        {
-          titulo,
-          subtitulo: subtitulo || null,
-          imagem_url: fotoUrlFinal,
-          link_destino: link_destino || null,
-          badge: badge || "Patrocinado",
-          ordem: ordem ? parseInt(ordem, 10) : 0,
-          ativo: ativo !== undefined ? JSON.parse(ativo) : true,
-        },
-      ])
-      .select();
-
-    if (error) throw error;
-
-    res.status(201).json({
-      message: "Anúncio cadastrado com sucesso!",
-      data: data[0],
-    });
-
-    // Função auxiliar para extrair o nome do ficheiro a partir da URL do Supabase
-function extrairCaminhoStorage(urlCompleta, bucket = "anuncios") {
-  if (!urlCompleta || !urlCompleta.includes(bucket)) return null;
-  const partes = urlCompleta.split(`${bucket}/`);
-  return partes.length > 1 ? partes[1] : null;
-}
-
-// ROTA: Atualizar Anúncio com substituição da imagem antiga
-app.put("/api/admin/anuncios/:id", verificarAdmin, upload.single("imagem"), async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { titulo, subtitulo, link_destino, badge, imagem_url, ordem, ativo } = req.body;
-
-    // 1. Procurar o anúncio existente na base de dados
-    const { data: anuncioAntigo, error: errorBusca } = await supabase
-      .from("anuncios")
-      .select("*")
-      .eq("id", id)
-      .single();
-
-    if (errorBusca || !anuncioAntigo) {
-      return res.status(404).json({ error: "Anúncio não encontrado." });
-    }
-
-    let fotoUrlFinal = anuncioAntigo.imagem_url; // Por padrão, mantém a foto antiga
-
-    // A) Se o administrador enviou um NOVO ficheiro de imagem
-    if (req.file) {
-      // 1. Upload da nova foto para o Supabase Storage
-      fotoUrlFinal = await uploadParaStorage(req.file, "anuncios");
-
-      // 2. Tentar apagar o ficheiro antigo do bucket no Supabase (se pertencer ao storage)
-      const caminhoAntigo = extrairCaminhoStorage(anuncioAntigo.imagem_url, "anuncios");
-      if (caminhoAntigo) {
-        await supabase.storage.from("anuncios").remove([caminhoAntigo]);
-      }
-    } 
-    // B) Se forneceu uma nova URL externa direta
-    else if (imagem_url && imagem_url.trim() !== "" && imagem_url !== anuncioAntigo.imagem_url) {
-      fotoUrlFinal = imagem_url.trim();
-
-      // Apagar foto antiga do storage se houver troca para URL externa
-      const caminhoAntigo = extrairCaminhoStorage(anuncioAntigo.imagem_url, "anuncios");
-      if (caminhoAntigo) {
-        await supabase.storage.from("anuncios").remove([caminhoAntigo]);
-      }
-    }
-
-    // 2. Atualizar o registo na tabela 'anuncios'
-    const { data, error } = await supabase
-      .from("anuncios")
-      .update({
-        titulo: titulo || anuncioAntigo.titulo,
-        subtitulo: subtitulo !== undefined ? subtitulo : anuncioAntigo.subtitulo,
-        imagem_url: fotoUrlFinal,
-        link_destino: link_destino !== undefined ? link_destino : anuncioAntigo.link_destino,
-        badge: badge !== undefined ? badge : anuncioAntigo.badge,
-        ordem: ordem !== undefined ? parseInt(ordem, 10) : anuncioAntigo.ordem,
-        ativo: ativo !== undefined ? JSON.parse(ativo) : anuncioAntigo.ativo,
-      })
-      .eq("id", id)
-      .select();
-
-    if (error) throw error;
-
-    res.status(200).json({
-      message: "Anúncio atualizado com sucesso!",
-      data: data[0],
-    });
-
-  } catch (error) {
-    console.error("Erro ao atualizar anúncio:", error);
-    res.status(500).json({
-      error: error.message || "Erro interno ao atualizar o anúncio.",
-    });
-  }
-});
-
-  } catch (error) {
-    console.error("Erro ao cadastrar anúncio:", error);
-    res.status(500).json({
-      error: error.message || "Erro interno ao cadastrar o anúncio.",
-    });
-  }
-});
-
 // ==================================================================
-// LISTEN
+// SERVIDOR / PORTA
 // ==================================================================
-app.listen(5000, () => {
-  console.log("Servidor rodando na porta 5000");
+const PORT = process.env.PORT || 5000;
+app.listen(PORT, () => {
+  console.log(`Servidor a executar na porta ${PORT}`);
 });
